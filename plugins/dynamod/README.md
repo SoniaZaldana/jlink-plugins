@@ -6,8 +6,8 @@ You enable it by passing `--dyna-test` to the `jlink` command, eg:
 
 ```bash
 $ jlink --dyna-test \
-        -p testapps/hellotest/target/hellotest-1.0-SNAPSHOT.jar \
-        -J--module-path=lib --add-modules hellotest \
+        -p target/hellotest-1.0-SNAPSHOT.jar \
+        -J--module-path=../../lib --add-modules hellotest \
         --output out --launcher hello=hellotest/helloworld.HelloWorld
 ```
 

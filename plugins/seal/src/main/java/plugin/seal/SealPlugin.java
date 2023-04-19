@@ -2,11 +2,16 @@
 //JAVAC_OPTIONS --add-exports=jdk.jlink/jdk.tools.jlink.plugin=seal
 //MODULE seal
 //DEPS org.ow2.asm:asm:9.3 org.ow2.asm:asm-tree:9.3
+///DEPS org.ow2.asm:asm-util:9.3
 
 package plugin.seal;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.InsnList;
+import org.objectweb.asm.tree.InvokeDynamicInsnNode;
+import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 import jdk.tools.jlink.plugin.Plugin;
@@ -21,6 +26,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -88,6 +94,9 @@ public final class SealPlugin extends AbstractPlugin {
     public ResourcePool transform(ResourcePool in, ResourcePoolBuilder out) {
         TypeSubclasses gts = mapTypeSubclasses(in);
         ModuleClasses gmc = mapModuleClasses(in);
+        Set<String> lts = collectLambdaTypes(in);
+
+        excludes.addAll(lts);
 
         Stats stats = new Stats();
         in.transformAndCopy(r -> {
@@ -136,6 +145,36 @@ public final class SealPlugin extends AbstractPlugin {
         return gts;
     }
 
+    // Collect set of types implemented by the lambdas encountered in all the code
+    private Set<String> collectLambdaTypes(ResourcePool in) {
+        HashSet<String> exClasses = new HashSet<>();
+        in.entries().forEach(r -> {
+            if (isClass(r)) {
+                String name = internalClassName(r.path());
+                ClassReader cr = newClassReader(r.path(), r);
+                ClassNode cn = new ClassNode();
+                cr.accept(cn, 0);
+                for (MethodNode mn : cn.methods) {
+                    InsnList il = mn.instructions;
+                    Iterator<AbstractInsnNode> it = il.iterator();
+                    while (it.hasNext()) {
+                        AbstractInsnNode insn = it.next();
+                        if (insn instanceof InvokeDynamicInsnNode) {
+                            InvokeDynamicInsnNode idn = (InvokeDynamicInsnNode) insn;
+                            String lambdaType = idn.desc.substring(idn.desc.lastIndexOf(')') + 1);
+                            if (lambdaType.startsWith("L") && lambdaType.endsWith(";")) {
+                                lambdaType = lambdaType.substring(1, lambdaType.length() - 1).replace('/', '.');
+                                log(TRACE, "Found lambda implementing %s in %s.%s(%s)", lambdaType, name, mn.name, mn.signature);
+                                exClasses.add(lambdaType);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        return exClasses;
+    }
+
     private ResourcePoolEntry transform(ResourcePoolEntry r, ResourcePool pool, TypeSubclasses gts, ModuleClasses gmc, Stats stats) {
         if (acceptedModules != null && !acceptedModules.contains(r.moduleName())) {
             return r;
@@ -145,6 +184,13 @@ public final class SealPlugin extends AbstractPlugin {
         ClassReader cr = newClassReader(r.path(), r);
         ClassNode cn = new ClassNode();
         cr.accept(cn, 0);
+        //cr.accept(new TraceClassVisitor(new PrintWriter(System.out)), 0);
+
+        if (isExcluded(name)) {
+            log(DEBUG, "Excluded %s", name);
+            stats.excluded++;
+            return r;
+        }
 
         boolean modified = false;
         Set<String> subclasses = gts.getOrDefault(name, Collections.emptySet());
@@ -167,7 +213,8 @@ public final class SealPlugin extends AbstractPlugin {
                 stats.notSealed++;
                 // Has subclasses, check if they're all in our module
                 ResourcePoolModule module = pool.moduleView().findModule(r.moduleName()).orElse(null);
-                if (gmc.hasClasses(r.moduleName(), subclasses) && areAccessible(module, name, subclasses)) {
+                if (gmc.hasClasses(r.moduleName(), subclasses)
+                        && areAccessible(module, name, subclasses)) {
                     // All subclasses are local, so we can mark this class sealed
                     if (markSealed) {
                         cn.permittedSubclasses = new ArrayList<>(subclasses);
@@ -195,19 +242,9 @@ public final class SealPlugin extends AbstractPlugin {
     // Naive implementation that checks if the target class is accessible from the source class
     // (both classes must be in the same module)
     private boolean isAccessible(ResourcePoolModule module, String sourceClassName, String targetClassName) {
-        String nm = targetClassName.replace("/", ".");
-        if (excludes.contains(nm)) {
-            log(DEBUG, "Excluded %s", targetClassName);
+        if (isExcluded(targetClassName)) {
             return false;
         }
-        if (nm.contains("$")) {
-            nm = nm.substring(0, targetClassName.indexOf("$"));
-            if (excludes.contains(nm)) {
-                log(DEBUG, "Excluded %s", targetClassName);
-                return false;
-            }
-        }
-
         if (!getPackage(sourceClassName).equals(getPackage(targetClassName))) {
             // If they're from different packages we check if the target is public
             String path = "/" + module.name() + "/" + targetClassName + ".class";
@@ -224,6 +261,22 @@ public final class SealPlugin extends AbstractPlugin {
             // TODO this doesn't handle inner classes etc at all!
             return true;
         }
+    }
+
+    private boolean areNotExcluded(Collection<String> subclasses) {
+        return subclasses.stream().noneMatch(this::isExcluded);
+    }
+
+    private boolean isExcluded(String targetClassName) {
+        String nm = targetClassName.replace("/", ".");
+        if (excludes.contains(nm)) {
+            return true;
+        }
+        if (nm.contains("$")) {
+            nm = nm.substring(0, targetClassName.indexOf("$"));
+            return excludes.contains(nm);
+        }
+        return false;
     }
 
     private static String getPackage(String internalClassName) {
@@ -283,6 +336,7 @@ public final class SealPlugin extends AbstractPlugin {
         public int notFinal;
         public int notSealed;
         public int localSubclassesOnly;
+        public int excluded;
 
         public void print() {
             log(INFO, "#Classes/interfaces found: %d", total);
@@ -291,6 +345,7 @@ public final class SealPlugin extends AbstractPlugin {
             log(INFO, "#Classes/interfaces with subclasses: %d", withSubclasses);
             log(INFO, "#Classes/interfaces not already sealed: %d", notSealed);
             log(INFO, "#Classes/interfaces with only local subclasses: %d", localSubclassesOnly);
+            log(INFO, "#Classes/interfaces excluded: %d", excluded);
         }
     }
 }

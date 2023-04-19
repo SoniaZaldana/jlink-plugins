@@ -68,8 +68,8 @@ Using the Seal plugin with the jettytest application can be done like this:
 
 ```bash
 $ jlink --seal='*:final=y:sealed=y:excludefile=../excludedclasses.txt:log=info' \
-        -p testapps/jettytest/target/lib:testapps/jettytest/target/jettytest-1.0-SNAPSHOT.jar  \
-        -J--module-path=lib --add-modules jettytest \
+        -p target/lib:target/jettytest-1.0-SNAPSHOT.jar  \ 
+        -J--module-path=../../lib --add-modules jettytest \
         --output out --launcher jetty=jettytest/test.jetty
 ```
 

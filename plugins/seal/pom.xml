@@ -28,6 +28,11 @@
       <artifactId>asm-tree</artifactId>
       <version>9.5-SNAPSHOT</version>
     </dependency>
+    <!--dependency>
+      <groupId>org.ow2.asm</groupId>
+      <artifactId>asm-util</artifactId>
+      <version>9.5-SNAPSHOT</version>
+    </dependency-->
   </dependencies>
 
   <repositories>

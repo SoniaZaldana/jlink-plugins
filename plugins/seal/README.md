@@ -77,9 +77,4 @@ You can run the test app like this:
 
 ```bash
 $ ./out/bin/jetty
-Error occurred during initialization of boot layer
-java.lang.IncompatibleClassChangeError: class jdk.internal.module.SystemModules$all cannot implement sealed interface jdk.internal.module.SystemModules
 ```
-
-As you can see the Seal plugin has made changes to this aplication that resulted in an invalid application.
-Further development is needed.

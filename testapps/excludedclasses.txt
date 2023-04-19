@@ -1,4 +1,3 @@
 java.lang.invoke.BoundMethodHandle
-java.util.regex.Pattern
 jdk.internal.module.SystemModules
 

@@ -1,8 +1,3 @@
-//SOURCES ../../module-info.java
-//JAVAC_OPTIONS --add-exports=jdk.jlink/jdk.tools.jlink.plugin=seal
-//MODULE seal
-//DEPS org.ow2.asm:asm:9.3 org.ow2.asm:asm-tree:9.3
-///DEPS org.ow2.asm:asm-util:9.3
 
 package plugin.seal;
 

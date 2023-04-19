@@ -1,8 +1,3 @@
-///usr/bin/env jbang "$0" "$@" ; exit $?
-
-//DEPS org.eclipse.jetty:jetty-server:11.0.14,org.eclipse.jetty:jetty-servlet:11.0.14
-//JAVA 9+
-//MODULE jettytest
 
 package test;
 

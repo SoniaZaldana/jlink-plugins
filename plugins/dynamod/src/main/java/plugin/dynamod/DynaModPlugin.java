@@ -1,6 +1,3 @@
-//SOURCES ../../module-info.java
-//JAVAC_OPTIONS --add-exports=jdk.jlink/jdk.tools.jlink.plugin=dynamod
-//MODULE dynamod
 
 package plugin.dynamod;
 

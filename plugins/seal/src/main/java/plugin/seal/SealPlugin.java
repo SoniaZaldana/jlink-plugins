@@ -161,11 +161,14 @@ public final class SealPlugin extends AbstractPlugin {
                         AbstractInsnNode insn = it.next();
                         if (insn instanceof InvokeDynamicInsnNode) {
                             InvokeDynamicInsnNode idn = (InvokeDynamicInsnNode) insn;
-                            String lambdaType = idn.desc.substring(idn.desc.lastIndexOf(')') + 1);
-                            if (lambdaType.startsWith("L") && lambdaType.endsWith(";")) {
-                                lambdaType = lambdaType.substring(1, lambdaType.length() - 1).replace('/', '.');
-                                log(TRACE, "Found lambda implementing %s in %s.%s(%s)", lambdaType, name, mn.name, mn.signature);
-                                exClasses.add(lambdaType);
+                            if ("java/lang/invoke/LambdaMetafactory".equals(idn.bsm.getOwner())
+                                    && "metafactory".equals(idn.bsm.getName())) {
+                                String lambdaType = idn.desc.substring(idn.desc.lastIndexOf(')') + 1);
+                                if (lambdaType.startsWith("L") && lambdaType.endsWith(";")) {
+                                    lambdaType = lambdaType.substring(1, lambdaType.length() - 1).replace('/', '.');
+                                    log(TRACE, "Found lambda implementing %s in %s.%s(%s)", lambdaType, name, mn.name, mn.signature);
+                                    exClasses.add(lambdaType);
+                                }
                             }
                         }
                     }

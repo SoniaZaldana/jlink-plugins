@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>plugin</groupId>
+        <artifactId>plugins</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <groupId>plugin</groupId>
+    <artifactId>classforname</artifactId>
+    <version>1.0-SNAPSHOT</version>
+
+    <name>classforname</name>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.soot-oss</groupId>
+            <artifactId>sootup.analysis</artifactId>
+            <version>1.0.0</version>
+        </dependency>
+
+<!--        <dependency>-->
+<!--            <groupId>org.soot-oss</groupId>-->
+<!--            <artifactId>sootup.java.core</artifactId>-->
+<!--            <version>1.0.0</version>-->
+<!--        </dependency>-->
+
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm</artifactId>
+            <version>9.5-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-tree</artifactId>
+            <version>9.5-SNAPSHOT</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-analysis</artifactId>
+            <version>9.4</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-commons</artifactId>
+            <version>9.4</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>9.4</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.soot-oss</groupId>
+            <artifactId>sootup.java.bytecode</artifactId>
+            <version>1.0.0-SNAPSHOT</version>
+            <scope>system</scope>
+            <systemPath>${basedir}/src/lib/sootup.java.bytecode-1.0.0-SNAPSHOT.jar</systemPath>
+        </dependency>
+
+
+
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <compilerArgs>
+                        <arg>--add-exports</arg>
+                        <arg>jdk.jlink/jdk.tools.jlink.plugin=classforname</arg>
+                        <arg>--add-exports</arg>
+                        <arg>java.base/jdk.internal.module=classforname</arg>
+
+<!--                        <arg>&#45;&#45;add-exports</arg>-->
+<!--                        <arg>org.objectweb.asm.util/org.objectweb.asm.tree.analysis=classforname</arg>-->
+<!--                        <arg>&#45;&#45;add-exports</arg>-->
+<!--                        <arg>org.objectweb.asm.util/sootup.java.bytecode.inputlocation=classforname</arg>-->
+                    </compilerArgs>
+                    <source>16</source>
+                    <target>16</target>
+                </configuration>
+            </plugin>
+
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-installed</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>${project.groupId}</groupId>
+                                    <artifactId>${project.artifactId}</artifactId>
+                                    <version>${project.version}</version>
+                                    <type>${project.packaging}</type>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.soot-oss</groupId>
+                                    <artifactId>sootup.analysis</artifactId>
+                                    <version>1.0.0</version>
+                                    <type>jar</type>
+                                </artifactItem>
+
+<!--                                <artifactItem>-->
+<!--                                    <groupId>org.ow2.asm</groupId>-->
+<!--                                    <artifactId>asm-commons</artifactId>-->
+<!--                                    <version>9.4</version>-->
+<!--                                    <type>jar</type>-->
+<!--                                </artifactItem>-->
+<!--                                <artifactItem>-->
+<!--                                    <groupId>org.ow2.asm</groupId>-->
+<!--                                    <artifactId>asm-util</artifactId>-->
+<!--                                    <version>9.4</version>-->
+<!--                                    <type>jar</type>-->
+<!--                                </artifactItem>-->
+<!--                                <artifactItem>-->
+<!--                                    <groupId>org.soot-oss</groupId>-->
+<!--                                    <artifactId>sootup.java.bytecode</artifactId>-->
+<!--                                    <version>1.0.0-SNAPSHOT</version>-->
+<!--                                    <type>jar</type>-->
+<!--                                </artifactItem>-->
+                            </artifactItems>
+                            <outputDirectory>${maven.multiModuleProjectDirectory}/lib</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+<!--            <plugin>-->
+<!--                <artifactId>maven-dependency-plugin</artifactId>-->
+<!--                <executions>-->
+<!--                    <execution>-->
+<!--                        <phase>prepare-package</phase>-->
+<!--                        <goals>-->
+<!--                            <goal>copy-dependencies</goal>-->
+<!--                        </goals>-->
+<!--                        <configuration>-->
+<!--                            <outputDirectory>${maven.multiModuleProjectDirectory}/lib</outputDirectory>-->
+<!--                        </configuration>-->
+<!--                    </execution>-->
+<!--                </executions>-->
+<!--            </plugin>-->
+
+        </plugins>
+    </build>
+
+</project>

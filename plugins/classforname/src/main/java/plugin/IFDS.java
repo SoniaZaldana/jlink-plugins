@@ -8,8 +8,6 @@ import sootup.callgraph.CallGraphAlgorithm;
 import sootup.callgraph.RapidTypeAnalysisAlgorithm;
 import sootup.core.jimple.basic.Immediate;
 import sootup.core.jimple.basic.Local;
-import sootup.core.jimple.basic.Value;
-import sootup.core.jimple.common.constant.ClassConstant;
 import sootup.core.jimple.common.expr.*;
 import sootup.core.jimple.common.stmt.*;
 
@@ -199,20 +197,7 @@ public class IFDS {
                          * analysis framework to successfully find the parameters passed on to the call.
                          */
 
-                        Map<SootMethod, PropagatedValues> methodWithPropValues = getEntryMethodsWithPropagatedValues(sm);
-                        for (SootMethod entryMethod : methodWithPropValues.keySet()) {
-                            JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> entrySolver = getSolver(entryMethod);
-
-                            // TODO I broke something here - not working.
-                            results =
-                                    (List<Map<Local, JLinkValue>>) entrySolver.ifdsResultsAt(call.getStmt()).stream().toList();
-
-                            /* Final attempt to get some constant values */
-                            if (addConstantParametersToCall(results, call)) {
-                                entryMethodsWithCalls.add(new EntryMethodWithCall(entryMethod, call));
-                            }
-
-                        }
+                        findCallerEntryRecursive(sm, entryMethodsWithCalls, call);
                     }
                 }
             }
@@ -223,12 +208,39 @@ public class IFDS {
         return analysisMap;
     }
 
+    private void findCallerEntryRecursive(SootMethod sm, List<EntryMethodWithCall> entryMethodsWithCalls, ServiceLoaderCall call) {
+
+        /* Base case 0: There's no caller methods */
+        Object[] calls = cg.callsTo(sm.getSignature()).toArray();
+        if (calls.length == 0) return;
+
+        for (int i = 0; i < calls.length; i++) {
+            Optional<? extends SootMethod> mOpt = view.getMethod((MethodSignature) calls[i]);
+            if (mOpt.isPresent()) {
+                /* Try to do analysis with this caller method as entry method */
+                JavaSootMethod callerMethod = (JavaSootMethod) mOpt.get();
+                JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> callerSolver = getSolver(callerMethod);
+                List<Map<Local, JLinkValue>> results = (List<Map<Local, JLinkValue>>)
+                        callerSolver.ifdsResultsAt(call.getStmt()).stream().toList();
+
+                ServiceLoaderCall clone = call.clone();
+                if (addConstantParametersToCall(results, clone)) {
+                    /* Base case 1: Direct caller method has sufficient info */
+                    entryMethodsWithCalls.add(new EntryMethodWithCall(callerMethod, clone));
+                } else {
+                    /* Recursive case: We need to backtrack once again */
+                    findCallerEntryRecursive(callerMethod, entryMethodsWithCalls, call);
+                }
+            }
+        }
+    }
+
     public boolean addConstantParametersToCall(List<Map<Local, JLinkValue>> results, ServiceLoaderCall call) {
 
         boolean foundPropagatedValues = false;
         for (Immediate i : call.getArgMap().keySet()) {
             for (Map<Local, JLinkValue> set : results) {
-                if (set.containsKey(i) && set.get(i) != JLinkIFDSProblem.TOP_VALUE) {
+                if (set.containsKey(i) && set.get(i) != JLinkIFDSProblem.TOP_VALUE && set.get(i) != null) {
                     call.addPropValue(i, set.get(i));
                     foundPropagatedValues = true;
                 }
@@ -255,79 +267,6 @@ public class IFDS {
         return solver;
     }
 
-    /**
-     * Finds the respective "entry methods" for a given target method that grant sufficient values
-     * to propagate to ServiceLoader.load() calls.
-     * Generates a map of {@link SootMethod} to {@link PropagatedValues}
-     *
-     *
-     * @param targetMethod the method enclosing the ServiceLoader.load() call.
-     * @return
-     */
-    private Map<SootMethod, PropagatedValues> getEntryMethodsWithPropagatedValues(SootMethod targetMethod) {
-
-        Map<SootMethod, PropagatedValues> propValuesMap = new HashMap<>();
-        Object[] calls = cg.callsTo(targetMethod.getSignature()).toArray();
-
-        if (calls.length > 0) {
-
-            PropagatedValues propValues = new PropagatedValues();
-            for (int i = 0; i < calls.length; i++) {
-                Optional<? extends SootMethod> mOpt = view.getMethod((MethodSignature) calls[i]);
-                if (mOpt.isPresent()) {
-                    /* Get the stmts responsible for calling target method */
-                    JavaSootMethod callerMethod = (JavaSootMethod) mOpt.get();
-                    List<Stmt> callStmts = callerMethod.getBody().getStmts().stream()
-                            .filter(stmt ->
-                                    stmt instanceof JInvokeStmt invokeStmt
-                                            && invokeStmt.getInvokeExpr().getMethodSignature().equals(targetMethod.getSignature()))
-                            .toList();
-
-                    for (Stmt call : callStmts) {
-                        if (hasConstantParameter(call)) {
-                            /* Found a direct caller with parameters we needed */
-                            propValues.addCallSiteWithValues(call, call.getInvokeExpr().getArgs());
-                        } else {
-                            /* We need to do a bit of interprocedural analysis to find values propagated.
-                             *  We first check if we can determine the value by analyzing the existing method */
-                            if (! foundConstantInEnclosingMethod(propValues,callerMethod, call)) {
-                                /* We were unable to find sufficient constant information within caller method.
-                                   Need to backtrack more in the call graph */
-                                // big TODO
-                            }
-
-
-                        }
-                    }
-                    propValuesMap.put(callerMethod, propValues);
-                }
-            }
-        }
-        return propValuesMap;
-    }
-
-    private boolean foundConstantInEnclosingMethod(PropagatedValues propValues, JavaSootMethod callerMethod, Stmt call) {
-        boolean foundValues = false;
-        JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(callerMethod);
-        List<Map<Local, JLinkValue>> results =
-                (List<Map<Local, JLinkValue>>) solver.ifdsResultsAt(call).stream().toList();
-
-        Value var = call.getInvokeExpr().getArg(0);
-        for (Map<Local, JLinkValue> set : results) {
-            if (set.containsKey(var) && set.get(var) != JLinkIFDSProblem.TOP_VALUE) {
-                propValues.addPropagatedValue(call, set.get(var));
-                foundValues = true;
-            }
-        }
-
-        return foundValues;
-    }
-
-    private boolean hasConstantParameter(Stmt call) {
-        return call.getInvokeExpr().getArg(0) instanceof ClassConstant;
-    }
-
-
     public class EntryMethodWithCall {
         private final SootMethod entryMethod;
         private ServiceLoaderCall call;
@@ -345,36 +284,4 @@ public class IFDS {
             return this.call;
         }
     }
-
-
-    // TODO Might not need this data structure. Perhaps finding entry method is sufficient.
-    class PropagatedValues {
-        Map<Stmt, List<JLinkValue>> values;
-
-        public PropagatedValues() {
-            this.values = new HashMap<>();
-        }
-
-        public void addCallSiteWithValues(Stmt stmt, List<Immediate> propValues) {
-            List<JLinkValue> valueList = new ArrayList<>();
-            for (Immediate i : propValues) {
-                if (i instanceof ClassConstant c) {
-                    valueList.add(new ClassValue(c.getValue()));
-                }
-            }
-            this.values.put(stmt, valueList);
-        }
-
-        public void addPropagatedValue(Stmt stmt, JLinkValue value) {
-            if (! this.values.containsKey(stmt)) {
-                this.values.put(stmt, new ArrayList<>());
-            }
-            this.values.get(stmt).add(value);
-        }
-
-        public List<JLinkValue> getPropValues(Stmt stmt) {
-            return this.values.get(stmt);
-        }
-    }
-
 }

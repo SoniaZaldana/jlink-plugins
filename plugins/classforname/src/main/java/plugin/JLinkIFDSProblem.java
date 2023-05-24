@@ -71,7 +71,14 @@ public class JLinkIFDSProblem
                     @Override
                     public Set<Map<Local, JLinkValue>> computeTargets(Map<Local, JLinkValue> source) {
                         Set<Map<Local, JLinkValue>> res = new LinkedHashSet<>();
-                        JLinkVisitor visitor = new JLinkVisitor(source);
+                        JLinkVisitor visitor;
+                        if (source.isEmpty() ||
+                                (methodToConstants.containsKey(m) && methodToConstants.get(m).size() > source.size())) {
+                            // We carried forward more information than what source reflects.
+                            visitor = new JLinkVisitor(methodToConstants.get(m));
+                        } else {
+                            visitor = new JLinkVisitor(source);
+                        }
                         if (definitionStmt.getRightOp() instanceof JStaticFieldRef) {
                             // TODO gotta do something with the clinit.
                         }

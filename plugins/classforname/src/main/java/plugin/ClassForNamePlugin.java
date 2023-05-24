@@ -19,7 +19,7 @@ import java.util.*;
  * Plugin for ServiceLoader analysis. Added it as ClassForName initially because I had already
  * opened up JLink to that plugin.
  *
- * TODO change name. 
+ * TODO change name.
  */
 public class ClassForNamePlugin extends AbstractPlugin {
 

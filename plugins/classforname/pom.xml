@@ -20,59 +20,52 @@
     </properties>
 
     <dependencies>
+
+        <!-- Contains the core building blocks such as jimple IR, control glow graphs, and frontend interfaces. -->
+        <dependency>
+            <groupId>org.soot-oss</groupId>
+            <artifactId>sootup.core</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
+        <!--  Enables performing interprocedural dataflow analyses.         -->
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.analysis</artifactId>
-            <version>1.0.0</version>
+            <version>1.1.0</version>
         </dependency>
 
-<!--        <dependency>-->
-<!--            <groupId>org.soot-oss</groupId>-->
-<!--            <artifactId>sootup.java.core</artifactId>-->
-<!--            <version>1.0.0</version>-->
-<!--        </dependency>-->
-
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm</artifactId>
-            <version>9.5-SNAPSHOT</version>
-        </dependency>
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-tree</artifactId>
-            <version>9.5-SNAPSHOT</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-analysis</artifactId>
-            <version>9.4</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-commons</artifactId>
-            <version>9.4</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.ow2.asm</groupId>
-            <artifactId>asm-util</artifactId>
-            <version>9.4</version>
-        </dependency>
-
+        <!--  Contains functionality necessary for taking as input java bytecode.         -->
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.java.bytecode</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
-            <scope>system</scope>
-            <systemPath>${basedir}/src/lib/sootup.java.bytecode-1.0.0-SNAPSHOT.jar</systemPath>
+            <version>1.1.0</version>
+<!--            <version>1.0.0-SNAPSHOT</version>-->
+<!--            <scope>system</scope>-->
+<!--            <systemPath>${basedir}/src/lib/sootup.java.bytecode-1.0.0-SNAPSHOT.jar</systemPath>-->
         </dependency>
 
+        <dependency>
+            <groupId>de.upb.cs.swt</groupId>
+            <artifactId>heros</artifactId>
+            <version>1.2.3</version>
+        </dependency>
 
+        <!--        Contains implementations of call graph construction algorithms -->
+        <dependency>
+            <groupId>org.soot-oss</groupId>
+            <artifactId>sootup.callgraph</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
+        <!--        Contains the functionality necessary for taking as input java source code. -->
+        <dependency>
+            <groupId>org.soot-oss</groupId>
+            <artifactId>sootup.java.core</artifactId>
+            <version>1.1.0</version>
+        </dependency>
 
     </dependencies>
-
     <build>
         <plugins>
             <plugin>
@@ -85,11 +78,6 @@
                         <arg>jdk.jlink/jdk.tools.jlink.plugin=classforname</arg>
                         <arg>--add-exports</arg>
                         <arg>java.base/jdk.internal.module=classforname</arg>
-
-<!--                        <arg>&#45;&#45;add-exports</arg>-->
-<!--                        <arg>org.objectweb.asm.util/org.objectweb.asm.tree.analysis=classforname</arg>-->
-<!--                        <arg>&#45;&#45;add-exports</arg>-->
-<!--                        <arg>org.objectweb.asm.util/sootup.java.bytecode.inputlocation=classforname</arg>-->
                     </compilerArgs>
                     <source>16</source>
                     <target>16</target>
@@ -118,49 +106,58 @@
                                 <artifactItem>
                                     <groupId>org.soot-oss</groupId>
                                     <artifactId>sootup.analysis</artifactId>
-                                    <version>1.0.0</version>
+                                    <version>1.1.0</version>
                                     <type>jar</type>
                                 </artifactItem>
-
-<!--                                <artifactItem>-->
-<!--                                    <groupId>org.ow2.asm</groupId>-->
-<!--                                    <artifactId>asm-commons</artifactId>-->
-<!--                                    <version>9.4</version>-->
-<!--                                    <type>jar</type>-->
-<!--                                </artifactItem>-->
-<!--                                <artifactItem>-->
-<!--                                    <groupId>org.ow2.asm</groupId>-->
-<!--                                    <artifactId>asm-util</artifactId>-->
-<!--                                    <version>9.4</version>-->
-<!--                                    <type>jar</type>-->
-<!--                                </artifactItem>-->
-<!--                                <artifactItem>-->
-<!--                                    <groupId>org.soot-oss</groupId>-->
-<!--                                    <artifactId>sootup.java.bytecode</artifactId>-->
-<!--                                    <version>1.0.0-SNAPSHOT</version>-->
-<!--                                    <type>jar</type>-->
-<!--                                </artifactItem>-->
+                                <artifactItem>
+                                    <groupId>org.soot-oss</groupId>
+                                    <artifactId>sootup.java.bytecode</artifactId>
+                                    <version>1.1.0</version>
+                                    <type>jar</type>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.soot-oss</groupId>
+                                    <artifactId>sootup.callgraph</artifactId>
+                                    <version>1.1.0</version>
+                                    <type>jar</type>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.soot-oss</groupId>
+                                    <artifactId>sootup.java.core</artifactId>
+                                    <version>1.1.0</version>
+                                    <type>jar</type>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>org.soot-oss</groupId>
+                                    <artifactId>sootup.core</artifactId>
+                                    <version>1.1.0</version>
+                                    <type>jar</type>
+                                </artifactItem>
+                                <artifactItem>
+                                    <groupId>de.upb.cs.swt</groupId>
+                                    <artifactId>heros</artifactId>
+                                    <version>1.2.3</version>
+                                </artifactItem>
                             </artifactItems>
-                            <outputDirectory>${maven.multiModuleProjectDirectory}/lib</outputDirectory>
+                            <outputDirectory>${basedir}/src/lib</outputDirectory>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>copy-dependencies</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${basedir}/src/lib</outputDirectory>
+                            <overWriteReleases>true</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                            <overWriteIfNewer>true</overWriteIfNewer>
+                            <excludeArtifactIds>asm-commons</excludeArtifactIds>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
-<!--            <plugin>-->
-<!--                <artifactId>maven-dependency-plugin</artifactId>-->
-<!--                <executions>-->
-<!--                    <execution>-->
-<!--                        <phase>prepare-package</phase>-->
-<!--                        <goals>-->
-<!--                            <goal>copy-dependencies</goal>-->
-<!--                        </goals>-->
-<!--                        <configuration>-->
-<!--                            <outputDirectory>${maven.multiModuleProjectDirectory}/lib</outputDirectory>-->
-<!--                        </configuration>-->
-<!--                    </execution>-->
-<!--                </executions>-->
-<!--            </plugin>-->
-
         </plugins>
     </build>
 

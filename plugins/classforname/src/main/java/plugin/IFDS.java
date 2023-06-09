@@ -18,7 +18,7 @@ import sootup.core.signatures.MethodSignature;
 
 
 import sootup.core.types.ClassType;
-import sootup.java.bytecode.inputlocation.JLinkInputLocation;
+//import sootup.java.bytecode.inputlocation.JLinkInputLocation;
 import sootup.java.core.JavaIdentifierFactory;
 import sootup.java.core.JavaProject;
 import sootup.java.core.JavaSootClass;
@@ -36,23 +36,23 @@ public class IFDS {
     protected CallGraph cg;
 
     public IFDS(Map<ClassType, byte[]> allClasses) {
-        factory = JavaIdentifierFactory.getInstance();
-        JavaProject javaProject = JavaProject.builder(new JavaLanguage(9))
-                .addInputLocation(new JLinkInputLocation(allClasses))
-                .build();
-
-        view = javaProject.createFullView();
-        System.out.println("finished resolving all classes");
-
-        /* Create a massive call graph with all methods in the view.
-        * This helps us retroactively look up who called ServiceLoader.load() */
-        List<MethodSignature> allSignatures = new ArrayList<>();
-        for (JavaSootClass clazz : view.getClasses()) {
-            allSignatures.addAll(clazz.getMethods().stream().map(SootMethod::getSignature).collect(Collectors.toList()));
-        }
-        CallGraphAlgorithm cha =
-                new RapidTypeAnalysisAlgorithm(view, view.getTypeHierarchy());
-        cg = cha.initialize(allSignatures);
+//        factory = JavaIdentifierFactory.getInstance();
+//        JavaProject javaProject = JavaProject.builder(new JavaLanguage(9))
+//                .addInputLocation(new JLinkInputLocation(allClasses))
+//                .build();
+//
+//        view = javaProject.createFullView();
+//        System.out.println("finished resolving all classes");
+//
+//        /* Create a massive call graph with all methods in the view.
+//        * This helps us retroactively look up who called ServiceLoader.load() */
+//        List<MethodSignature> allSignatures = new ArrayList<>();
+//        for (JavaSootClass clazz : view.getClasses()) {
+//            allSignatures.addAll(clazz.getMethods().stream().map(SootMethod::getSignature).collect(Collectors.toList()));
+//        }
+//        CallGraphAlgorithm cha =
+//                new RapidTypeAnalysisAlgorithm(view, view.getTypeHierarchy());
+//        cg = cha.initialize(allSignatures);
     }
 
     /**
@@ -135,75 +135,75 @@ public class IFDS {
         SootClass<?> sc = getClass(targetClassName);
 
         /* We first find all methods in the class with service loader calls */
-        Map<SootMethod, List<ServiceLoaderCall>> methodsEnclosingSLCalls = getEnclosingMethodsWithServiceLoaderCalls(sc);
+//        Map<SootMethod, List<ServiceLoaderCall>> methodsEnclosingSLCalls = getEnclosingMethodsWithServiceLoaderCalls(sc);
 
         /* Then, we perform analysis on each of these methods and calls to determine constant values */
         Map<SootMethod, List<EntryMethodWithCall>> analysisMap = new HashMap<>();
-        for (SootMethod sm : methodsEnclosingSLCalls.keySet()) {
-            List<EntryMethodWithCall> entryMethodsWithCalls = new ArrayList<>();
-            for (ServiceLoaderCall call : methodsEnclosingSLCalls.get(sm)) {
-                if (call.hasConstantParameters()) {
-                    /* Call has constant parameters. We simply add the "entry method" as the enclosing method */
-                    entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
-                } else {
-                    /* Call doesn't have readily available constants, so we do further analysis */
-
-                    /**
-                     * We have two analysis cases:
-                     * (i) We have sufficient information in the enclosing method to deduce the values passed
-                     *     on to ServiceLoader.load().
-                     * (ii) The enclosing method does not offer enough information to deduce values passed on
-                     *      to ServiceLoader.load(), so we need to do more involved analysis.
-                     *
-                     * First, we tackle case (i) by setting the enclosing method with the call as the "entry
-                     * method" for interprocedural analysis.
-                     * For example, in functions like the ones below, it suffices to use "foo" as the entry
-                     * method for interprocedural analysis.
-                     *      public void foo() {
-                     *          Class clazz = bar();
-                     *          ServiceLoader.load(clazz);
-                     *      }
-                     *      or
-                     *      public void foo() {
-                     *          ServiceLoader.load(Class.forName("Test.clazz"));
-                     *      }
-                     */
-
-                    JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(sm); // enclosing method as entry method
-                    List<Map<Local, JLinkValue>> results =
-                            (List<Map<Local, JLinkValue>>) solver.ifdsResultsAt(call.getStmt()).stream().toList();
-
-                    if (addConstantParametersToCall(results, call)) {
-
-                        /* We found sufficient information with the analysis above, so we add the call with
-                           the respective constant parameters and the enclosing method as the "entry method"
-                         */
-                        entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
-                    } else {
-
-                        /**
-                         * Tackling case (ii) where the enclosing method did not have sufficient information
-                         * to determine any constant information.
-                         * For example, in the functions below we need to backtrack in the call graph
-                         * to find the callers of the enclosing method, and use those as entry methods instead.
-                         *      public void bar() {
-                         *          foo(Test.class);
-                         *      }
-                         *      public void foo(Class clazz) {
-                         *          ServiceLoader.load(clazz);
-                         *      }
-                         * Using the enclosing method "foo" as the entry method is insufficient. We need to
-                         * find all callers to foo (namely bar) and use that as the entry method for the
-                         * analysis framework to successfully find the parameters passed on to the call.
-                         */
-
-                        findCallerEntryRecursive(sm, entryMethodsWithCalls, call);
-                    }
-                }
-            }
-
-            analysisMap.put(sm, entryMethodsWithCalls);
-        }
+//        for (SootMethod sm : methodsEnclosingSLCalls.keySet()) {
+//            List<EntryMethodWithCall> entryMethodsWithCalls = new ArrayList<>();
+//            for (ServiceLoaderCall call : methodsEnclosingSLCalls.get(sm)) {
+//                if (call.hasConstantParameters()) {
+//                    /* Call has constant parameters. We simply add the "entry method" as the enclosing method */
+//                    entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
+//                } else {
+//                    /* Call doesn't have readily available constants, so we do further analysis */
+//
+//                    /**
+//                     * We have two analysis cases:
+//                     * (i) We have sufficient information in the enclosing method to deduce the values passed
+//                     *     on to ServiceLoader.load().
+//                     * (ii) The enclosing method does not offer enough information to deduce values passed on
+//                     *      to ServiceLoader.load(), so we need to do more involved analysis.
+//                     *
+//                     * First, we tackle case (i) by setting the enclosing method with the call as the "entry
+//                     * method" for interprocedural analysis.
+//                     * For example, in functions like the ones below, it suffices to use "foo" as the entry
+//                     * method for interprocedural analysis.
+//                     *      public void foo() {
+//                     *          Class clazz = bar();
+//                     *          ServiceLoader.load(clazz);
+//                     *      }
+//                     *      or
+//                     *      public void foo() {
+//                     *          ServiceLoader.load(Class.forName("Test.clazz"));
+//                     *      }
+//                     */
+//
+//                    JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(sm); // enclosing method as entry method
+//                    List<Map<Local, JLinkValue>> results =
+//                            (List<Map<Local, JLinkValue>>) solver.ifdsResultsAt(call.getStmt()).stream().toList();
+//
+//                    if (addConstantParametersToCall(results, call)) {
+//
+//                        /* We found sufficient information with the analysis above, so we add the call with
+//                           the respective constant parameters and the enclosing method as the "entry method"
+//                         */
+//                        entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
+//                    } else {
+//
+//                        /**
+//                         * Tackling case (ii) where the enclosing method did not have sufficient information
+//                         * to determine any constant information.
+//                         * For example, in the functions below we need to backtrack in the call graph
+//                         * to find the callers of the enclosing method, and use those as entry methods instead.
+//                         *      public void bar() {
+//                         *          foo(Test.class);
+//                         *      }
+//                         *      public void foo(Class clazz) {
+//                         *          ServiceLoader.load(clazz);
+//                         *      }
+//                         * Using the enclosing method "foo" as the entry method is insufficient. We need to
+//                         * find all callers to foo (namely bar) and use that as the entry method for the
+//                         * analysis framework to successfully find the parameters passed on to the call.
+//                         */
+//
+//                        findCallerEntryRecursive(sm, entryMethodsWithCalls, call);
+//                    }
+//                }
+//            }
+//
+//            analysisMap.put(sm, entryMethodsWithCalls);
+//        }
 
         return analysisMap;
     }

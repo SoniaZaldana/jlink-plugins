@@ -114,9 +114,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
         Map<ClassType, byte[]> map = new HashMap<>();
         pool.entries().forEach(resource -> {
 
-            if (resource.path().endsWith(".class") && !resource.path().endsWith("/module-info.class")
-                    && (resource.path().contains("StaticTest.class")
-                    || (resource.path().contains("ServiceLoader.class")))) { // TODO temporary conditions because indy is broken.
+            if (resource.path().endsWith(".class") && !resource.path().endsWith("/module-info.class")) {
 
                 JavaIdentifierFactory identifierFactory = JavaIdentifierFactory.getInstance();
                 JavaClassType classSignature = identifierFactory.getClassType(reformatClassName(resource));

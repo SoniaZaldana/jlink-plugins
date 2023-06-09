@@ -1,6 +1,7 @@
 package plugin;
 
 import heros.InterproceduralCFG;
+import plugin.inputlocation.JLinkInputLocation;
 import sootup.analysis.interprocedural.icfg.JimpleBasedInterproceduralCFG;
 import sootup.analysis.interprocedural.ifds.JimpleIFDSSolver;
 import sootup.callgraph.CallGraph;
@@ -18,7 +19,6 @@ import sootup.core.signatures.MethodSignature;
 
 
 import sootup.core.types.ClassType;
-//import sootup.java.bytecode.inputlocation.JLinkInputLocation;
 import sootup.java.core.JavaIdentifierFactory;
 import sootup.java.core.JavaProject;
 import sootup.java.core.JavaSootClass;
@@ -36,22 +36,24 @@ public class IFDS {
     protected CallGraph cg;
 
     public IFDS(Map<ClassType, byte[]> allClasses) {
-//        factory = JavaIdentifierFactory.getInstance();
-//        JavaProject javaProject = JavaProject.builder(new JavaLanguage(9))
-//                .addInputLocation(new JLinkInputLocation(allClasses))
-//                .build();
-//
-//        view = javaProject.createFullView();
-//        System.out.println("finished resolving all classes");
-//
-//        /* Create a massive call graph with all methods in the view.
-//        * This helps us retroactively look up who called ServiceLoader.load() */
-//        List<MethodSignature> allSignatures = new ArrayList<>();
-//        for (JavaSootClass clazz : view.getClasses()) {
-//            allSignatures.addAll(clazz.getMethods().stream().map(SootMethod::getSignature).collect(Collectors.toList()));
-//        }
+        factory = JavaIdentifierFactory.getInstance();
+        JavaProject javaProject = JavaProject.builder(new JavaLanguage(9))
+                .addInputLocation(new JLinkInputLocation(allClasses))
+                .build();
+
+        view = javaProject.createFullView();
+        System.out.println("finished resolving all classes");
+
+        /* Create a massive call graph with all methods in the view.
+        * This helps us retroactively look up who called ServiceLoader.load() */
+        List<MethodSignature> allSignatures = new ArrayList<>();
+
+        for (JavaSootClass clazz : view.getClasses()) {
+            allSignatures.addAll(clazz.getMethods().stream().map(SootMethod::getSignature).collect(Collectors.toList()));
+        }
+
 //        CallGraphAlgorithm cha =
-//                new RapidTypeAnalysisAlgorithm(view, view.getTypeHierarchy());
+//                new RapidTypeAnalysisAlgorithm(view);
 //        cg = cha.initialize(allSignatures);
     }
 

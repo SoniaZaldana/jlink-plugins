@@ -9,7 +9,6 @@
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <groupId>plugin</groupId>
     <artifactId>classforname</artifactId>
     <version>1.0-SNAPSHOT</version>
 
@@ -39,10 +38,9 @@
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.java.bytecode</artifactId>
-            <version>1.1.0</version>
-<!--            <version>1.0.0-SNAPSHOT</version>-->
-<!--            <scope>system</scope>-->
-<!--            <systemPath>${basedir}/src/lib/sootup.java.bytecode-1.0.0-SNAPSHOT.jar</systemPath>-->
+            <version>1.1.0-SNAPSHOT</version>
+            <scope>system</scope>
+            <systemPath>${basedir}/src/lib/sootup.java.bytecode-1.1.0-SNAPSHOT.jar</systemPath>
         </dependency>
 
         <dependency>
@@ -64,6 +62,18 @@
             <artifactId>sootup.java.core</artifactId>
             <version>1.1.0</version>
         </dependency>
+
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-util</artifactId>
+            <version>9.5</version>
+        </dependency>
+        <dependency>
+            <groupId>org.ow2.asm</groupId>
+            <artifactId>asm-commons</artifactId>
+            <version>9.5</version>
+        </dependency>
+
 
     </dependencies>
     <build>
@@ -109,12 +119,13 @@
                                     <version>1.1.0</version>
                                     <type>jar</type>
                                 </artifactItem>
-                                <artifactItem>
-                                    <groupId>org.soot-oss</groupId>
-                                    <artifactId>sootup.java.bytecode</artifactId>
-                                    <version>1.1.0</version>
-                                    <type>jar</type>
-                                </artifactItem>
+<!--                                <artifactItem>-->
+<!--                                    <groupId>org.soot-oss</groupId>-->
+<!--                                    <artifactId>sootup.java.bytecode</artifactId>-->
+<!--                                    <version>1.1.0</version>-->
+<!--                                    <type>jar</type>-->
+<!--                                </artifactItem>-->
+<!--                                TODO we can uncomment this with the v1.1.0 if they agree to API changes I suggested. -->
                                 <artifactItem>
                                     <groupId>org.soot-oss</groupId>
                                     <artifactId>sootup.callgraph</artifactId>
@@ -154,6 +165,8 @@
                             <overWriteSnapshots>true</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
                             <excludeArtifactIds>asm-commons</excludeArtifactIds>
+                            <excludeArtifactIds>sootup.java.bytecode</excludeArtifactIds>
+                            <excludeArtifactIds>dex-tools</excludeArtifactIds>
                         </configuration>
                     </execution>
                 </executions>

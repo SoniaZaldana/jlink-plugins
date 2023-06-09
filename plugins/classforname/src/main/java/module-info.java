@@ -6,6 +6,7 @@ module classforname {
     requires sootup.java.core;
     requires heros;
     requires sootup.callgraph;
+    requires org.objectweb.asm.tree;
 
     provides jdk.tools.jlink.plugin.Plugin with plugin.ClassForNamePlugin;
 

@@ -62,7 +62,7 @@ public class AsmByteClassProvider {
                             signature,
                             exceptions,
                             view,
-                            view.getBodyInterceptors());
+                            view.getBodyInterceptors(this.analysisInputLocation));
             methods.add(mn);
             return mn;
         }

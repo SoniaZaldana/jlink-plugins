@@ -112,11 +112,15 @@ public class ClassForNamePlugin extends AbstractPlugin {
      */
     private Map<ClassType, byte[]> getClassMap(ResourcePool pool) {
         Map<ClassType, byte[]> map = new HashMap<>();
+        JavaIdentifierFactory identifierFactory = JavaIdentifierFactory.getInstance();
+
         pool.entries().forEach(resource -> {
 
-            if (resource.path().endsWith(".class") && !resource.path().endsWith("/module-info.class")) {
+            if (resource.path().endsWith(".class")
+                    && !resource.path().endsWith("/module-info.class")
+//                    && !resource.path().contains("ServiceLoader") // hunch: removing it speeds up call graph generation.
+            ) {
 
-                JavaIdentifierFactory identifierFactory = JavaIdentifierFactory.getInstance();
                 JavaClassType classSignature = identifierFactory.getClassType(reformatClassName(resource));
                 map.put(classSignature, resource.contentBytes());
             }

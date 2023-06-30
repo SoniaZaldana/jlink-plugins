@@ -147,8 +147,13 @@ public class JLinkIFDSProblem
                             } else if (returnStmt.getOp() instanceof ClassConstant constant) {
                                 returnValue = new ClassValue(constant.getValue());
                             }
-
-                            methodToConstants.get(caller).put(leftOpLocal, returnValue);
+                            if (methodToConstants.containsKey(caller)) {
+                                methodToConstants.get(caller).put(leftOpLocal, returnValue);
+                            } else {
+                                Map<Local, JLinkValue> map = new HashMap<>();
+                                map.put(leftOpLocal, returnValue);
+                                methodToConstants.put(caller, map);
+                            }
                             ret.add(methodToConstants.get(caller));
                             return ret;
                         }

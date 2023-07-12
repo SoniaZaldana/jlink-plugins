@@ -24,19 +24,19 @@ import java.util.*;
 public class ClassForNamePlugin extends AbstractPlugin {
 
     public static final String NAME = "class-for-name";
-    private final String REPORT_FILE_NAME = "const_report.txt";
+    private final String REPORT_FILE_NAME = "failed_report.txt";
     private final String PROP_FILE = "prop_report.txt";
-    private final FileWriter reportWriter;
+    private final FileWriter failedPropagationWriter;
     private final FileWriter propWriter;
     private IFDS ifds;
 
     public ClassForNamePlugin() {
         super(NAME);
         try {
-            reportWriter = new FileWriter(REPORT_FILE_NAME);
+            failedPropagationWriter = new FileWriter(REPORT_FILE_NAME);
             SimpleDateFormat formatter = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
             Date date = new Date();
-            reportWriter.write(String.format("------------ Constant Propagation Information " +
+            failedPropagationWriter.write(String.format("------------ Failed Propagation Information " +
                     "Report generated On %s ------------\n", formatter.format(date)));
             propWriter = new FileWriter(PROP_FILE);
             propWriter.write(String.format("PROP REPORT \n"));
@@ -83,7 +83,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
                     String path = resource.path();
 
                     if (path.endsWith(".class") && !path.endsWith("/module-info.class")
-//                            && path.contains("/java.base/java/util/ResourceBundle.class") // testing condition
+//                            && path.contains("javax/tools/ToolProvider.class") // testing condition
                     ) {
                         System.out.println(path);
                         out.add(transform(resource));
@@ -93,12 +93,13 @@ public class ClassForNamePlugin extends AbstractPlugin {
                 });
 
         try {
-            reportWriter.close();
+            failedPropagationWriter.close();
             propWriter.close();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-
+        System.out.println("Constant calls: " + ifds.constantCounter);
+        System.out.println("IFDS Calls: " + ifds.ifdsCounter);
         return out.build();
     }
 
@@ -113,21 +114,16 @@ public class ClassForNamePlugin extends AbstractPlugin {
     private Map<ClassType, byte[]> getClassMap(ResourcePool pool) {
         Map<ClassType, byte[]> map = new HashMap<>();
         JavaIdentifierFactory identifierFactory = JavaIdentifierFactory.getInstance();
-
         pool.entries().forEach(resource -> {
-
             if (resource.path().endsWith(".class")
                     && !resource.path().endsWith("/module-info.class")) {
                 JavaClassType classSignature = identifierFactory.getClassType(reformatClassName(resource));
                 map.put(classSignature, resource.contentBytes());
             }
-
         });
-
         System.out.println("finished generating map for input location");
         return map;
     }
-
 
     /**
      * Doesn't do any actual transformation. Just fetches constant values for ServiceLoader.load()
@@ -139,7 +135,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
 
         try {
             Map<SootMethod, List<IFDS.EntryMethodWithCall>> map =
-                    ifds.doServiceLoaderStaticAnalysis(reformatClassName(resource));
+                    ifds.doServiceLoaderStaticAnalysis(reformatClassName(resource), failedPropagationWriter);
             if (! map.isEmpty()) {
                 propWriter.write(resource.path() + " \n");
                 for (SootMethod sm : map.keySet()) {

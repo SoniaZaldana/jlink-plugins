@@ -22,23 +22,26 @@ import sootup.core.signatures.MethodSignature;
 import sootup.core.types.ClassType;
 import sootup.java.core.JavaIdentifierFactory;
 import sootup.java.core.JavaProject;
-import sootup.java.core.JavaSootClass;
 import sootup.java.core.JavaSootMethod;
 import sootup.java.core.language.JavaLanguage;
 import sootup.java.core.types.JavaClassType;
 import sootup.java.core.views.JavaView;
 
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.*;
 
 public class IFDS {
     protected JavaView view;
     protected JavaIdentifierFactory factory;
     protected Map<ClassType, byte[]> allClasses;
-    private List<MethodSignature> allSignatures;
-
     protected Map<ClassType, JavaView> viewMap;
+    int ifdsCounter;
+    int constantCounter;
 
     public IFDS(Map<ClassType, byte[]> allClasses) {
+        ifdsCounter = 0;
+        constantCounter = 0;
         this.viewMap = new HashMap<>();
         this.allClasses = allClasses;
         factory = JavaIdentifierFactory.getInstance();
@@ -46,14 +49,8 @@ public class IFDS {
                 .addInputLocation(new JLinkInputLocation(allClasses))
                 .build();
 
-        view = javaProject.createFullView();
+        view = javaProject.createView();
         System.out.println("finished resolving all classes");
-
-        allSignatures = new ArrayList<>();
-
-        for (JavaSootClass clazz : view.getClasses()) {
-            allSignatures.addAll(clazz.getMethods().stream().map(SootMethod::getSignature).toList());
-        }
     }
 
     /**
@@ -114,7 +111,7 @@ public class IFDS {
     }
 
 
-    public Map<SootMethod, List<EntryMethodWithCall>> doServiceLoaderStaticAnalysis(String targetClassName) {
+    public Map<SootMethod, List<EntryMethodWithCall>> doServiceLoaderStaticAnalysis(String targetClassName, FileWriter writer) {
         SootClass<?> sc = getClass(targetClassName);
 
         /* We first find all methods in the class with service loader calls */
@@ -128,6 +125,7 @@ public class IFDS {
                 if (call.hasConstantParameters()) {
                     /* Call has constant parameters. We simply add the "entry method" as the enclosing method */
                     entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
+                    constantCounter++;
                 } else {
                     /* Call doesn't have readily available constants, so we do further analysis */
 
@@ -164,6 +162,13 @@ public class IFDS {
                     JavaView view = inputLocationWithSingleClass(sm.getDeclaringClassType()).createView();
                     JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(view.getMethod(sm.getSignature()).get(), view);
                     if (solver == null) {
+                        try {
+                            writer.write("ClassName: " + targetClassName + " \n");
+                            writer.write("\t\t Solver was null");
+                            writer.write("\t\t" + call + "\n");
+                        } catch (IOException e) {
+                            // do nothing
+                        }
                         continue;
                     }
 
@@ -180,6 +185,7 @@ public class IFDS {
                          * the respective constant parameters and the enclosing method as the "entry method"
                          */
                         entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
+                        ifdsCounter++;
                     } else {
 
                         /* Tackling case (A.2) i.e. we examine just the enclosing class, but we backtrack
@@ -187,13 +193,23 @@ public class IFDS {
                          */
 
                         if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call)) {
-                            entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
+                            // do nothing
+                            System.out.println("We found " + entryMethodsWithCalls.size() + " calls in " + targetClassName);
+                            ifdsCounter += entryMethodsWithCalls.size();
+                        } else {
+                            try {
+                                writer.write("ClassName: " + targetClassName + " \n");
+                                writer.write("\t\t" + call + "\n");
+                            } catch (IOException e) {
+                                // do nothing
+                            }
                         }
                     }
                 }
             }
-
-            analysisMap.put(sm, entryMethodsWithCalls);
+            if (! entryMethodsWithCalls.isEmpty()) {
+                analysisMap.put(sm, entryMethodsWithCalls);
+            }
         }
 
         return analysisMap;
@@ -263,15 +279,16 @@ public class IFDS {
         try {
             CallGraph cg = cha.initialize(classMethodSignatures);
             // note - important to pass down method corresponding to examined view.
-            backTrackRecursive(view.getMethod(sm.getSignature()).get(), entryMethodsWithCalls, call, cg, view);
+            return backTrackRecursive(view.getMethod(sm.getSignature()).get(), entryMethodsWithCalls, call, cg, view);
         } catch (Exception e) {
             // todo do nothing for now. Likely an issue initializing call graph because of AccessController.doPrivileged()
         }
 
-        return call.hasConstantParameters();
+        return false;
+//        return call.hasConstantParameters();
     }
 
-    private void backTrackRecursive(SootMethod sm,
+    private boolean backTrackRecursive(SootMethod sm,
                                     List<EntryMethodWithCall> entryMethodsWithCalls,
                                     ServiceLoaderCall call,
                                     CallGraph cg,
@@ -281,10 +298,11 @@ public class IFDS {
 
         /* Base case 0: No calls to method with ServiceLoader call */
         if (calls.length == 0) {
-            return;
+            return false;
         }
 
         /* Found entry method(s) */
+        boolean foundConstants = false;
         for (int i = 0; i < calls.length; i++) {
             Optional<? extends SootMethod> mOpt = view.getMethod((MethodSignature) calls[i]);
             if (mOpt.isPresent()) {
@@ -305,13 +323,15 @@ public class IFDS {
                 if (addConstantParametersToCall(results, clone)) {
                     /* Base case 1: Direct caller method has sufficient info */
                     entryMethodsWithCalls.add(new EntryMethodWithCall(callerMethod, clone));
+                    foundConstants = true;
                 } else {
                     /* Recursive case: We need to backtrack once again */
-                    backTrackRecursive(callerMethod, entryMethodsWithCalls, call, cg, view);
+                    foundConstants = foundConstants || backTrackRecursive(callerMethod, entryMethodsWithCalls, call, cg, view);
                 }
             }
         }
 
+        return foundConstants;
     }
 
     public boolean addConstantParametersToCall(List<Map<Local, JLinkValue>> results, ServiceLoaderCall call) {

@@ -21,40 +21,40 @@
     <dependencies>
 
         <!-- Contains the core building blocks such as jimple IR, control glow graphs, and frontend interfaces. -->
-<!--        <dependency>-->
-<!--            <groupId>org.soot-oss</groupId>-->
-<!--            <artifactId>sootup.core</artifactId>-->
-<!--            <version>1.1.0</version>-->
-<!--        </dependency>-->
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.core</artifactId>
-            <version>1.1.0-SNAPSHOT</version>
-            <scope>system</scope>
-            <systemPath>${basedir}/src/lib/sootup.core-1.1.0-SNAPSHOT.jar</systemPath>
+            <version>1.1.2</version>
         </dependency>
+<!--        <dependency>-->
+<!--            <groupId>org.soot-oss</groupId>-->
+<!--            <artifactId>sootup.core</artifactId>-->
+<!--            <version>1.1.0-SNAPSHOT</version>-->
+<!--            <scope>system</scope>-->
+<!--            <systemPath>${basedir}/src/lib/sootup.core-1.1.0-SNAPSHOT.jar</systemPath>-->
+<!--        </dependency>-->
 
         <!--  Enables performing interprocedural dataflow analyses.         -->
 <!--        <dependency>-->
 <!--            <groupId>org.soot-oss</groupId>-->
 <!--            <artifactId>sootup.analysis</artifactId>-->
-<!--            <version>1.1.0</version>-->
+<!--            <version>1.1.2</version>-->
 <!--        </dependency>-->
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.analysis</artifactId>
-            <version>1.1.0-SNAPSHOT</version>
+            <version>1.1.2-SNAPSHOT</version>
             <scope>system</scope>
-            <systemPath>${basedir}/src/lib/sootup.analysis-1.1.0-SNAPSHOT.jar</systemPath>
+            <systemPath>${basedir}/src/lib/sootup.analysis-1.1.2-SNAPSHOT.jar</systemPath>
         </dependency>
 
         <!--  Contains functionality necessary for taking as input java bytecode.         -->
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.java.bytecode</artifactId>
-            <version>1.1.0-SNAPSHOT</version>
+            <version>1.1.2-SNAPSHOT</version>
             <scope>system</scope>
-            <systemPath>${basedir}/src/lib/sootup.java.bytecode-1.1.0-SNAPSHOT.jar</systemPath>
+            <systemPath>${basedir}/src/lib/sootup.java.bytecode-1.1.2-SNAPSHOT.jar</systemPath>
         </dependency>
 
         <dependency>
@@ -67,14 +67,14 @@
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.callgraph</artifactId>
-            <version>1.1.0</version>
+            <version>1.1.2</version>
         </dependency>
 
         <!--        Contains the functionality necessary for taking as input java source code. -->
         <dependency>
             <groupId>org.soot-oss</groupId>
             <artifactId>sootup.java.core</artifactId>
-            <version>1.1.0</version>
+            <version>1.1.2</version>
         </dependency>
 
         <dependency>
@@ -130,7 +130,7 @@
 <!--                                <artifactItem>-->
 <!--                                    <groupId>org.soot-oss</groupId>-->
 <!--                                    <artifactId>sootup.analysis</artifactId>-->
-<!--                                    <version>1.1.0</version>-->
+<!--                                    <version>1.1.2</version>-->
 <!--                                    <type>jar</type>-->
 <!--                                </artifactItem>-->
 <!--                                <artifactItem>-->
@@ -143,21 +143,21 @@
                                 <artifactItem>
                                     <groupId>org.soot-oss</groupId>
                                     <artifactId>sootup.callgraph</artifactId>
-                                    <version>1.1.0</version>
+                                    <version>1.1.2</version>
                                     <type>jar</type>
                                 </artifactItem>
                                 <artifactItem>
                                     <groupId>org.soot-oss</groupId>
                                     <artifactId>sootup.java.core</artifactId>
-                                    <version>1.1.0</version>
+                                    <version>1.1.2</version>
                                     <type>jar</type>
                                 </artifactItem>
-<!--                                <artifactItem>-->
-<!--                                    <groupId>org.soot-oss</groupId>-->
-<!--                                    <artifactId>sootup.core</artifactId>-->
-<!--                                    <version>1.1.0</version>-->
-<!--                                    <type>jar</type>-->
-<!--                                </artifactItem>-->
+                                <artifactItem>
+                                    <groupId>org.soot-oss</groupId>
+                                    <artifactId>sootup.core</artifactId>
+                                    <version>1.1.2</version>
+                                    <type>jar</type>
+                                </artifactItem>
                                 <artifactItem>
                                     <groupId>de.upb.cs.swt</groupId>
                                     <artifactId>heros</artifactId>

@@ -26,11 +26,9 @@ public class JLinkIFDSProblem
 
     public static final JLinkValue TOP_VALUE = new JLinkValue();
     private SootMethod entryMethod;
-    protected InterproceduralCFG<Stmt, SootMethod> icfg;
     private Map<SootMethod, Map<Local, JLinkValue>> methodToConstants;
     public JLinkIFDSProblem(InterproceduralCFG<Stmt, SootMethod> icfg, SootMethod entryMethod) {
         super(icfg);
-        this.icfg = icfg;
         this.entryMethod = entryMethod;
         this.methodToConstants = new HashMap<>();
     }
@@ -127,7 +125,7 @@ public class JLinkIFDSProblem
     }
 
     FlowFunction<Map<Local, JLinkValue>> getReturnFlow(final Stmt callSite, final SootMethod calleeMethod,
-                                                   Stmt exitStmt, Stmt returnSite) {
+                                                       Stmt exitStmt, Stmt returnSite) {
 
         SootMethod caller = interproceduralCFG().getMethodOf(returnSite);
         if (callSite instanceof AbstractDefinitionStmt<?, ?> definitionStmt) {

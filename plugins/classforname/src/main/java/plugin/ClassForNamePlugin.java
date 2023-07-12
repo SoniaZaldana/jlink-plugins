@@ -83,7 +83,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
                     String path = resource.path();
 
                     if (path.endsWith(".class") && !path.endsWith("/module-info.class")
-                            && path.contains("StaticTest.class") // TODO remove temporary testing condition.
+//                            && path.contains("/java.base/java/util/ResourceBundle.class") // testing condition
                     ) {
                         System.out.println(path);
                         out.add(transform(resource));
@@ -117,10 +117,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
         pool.entries().forEach(resource -> {
 
             if (resource.path().endsWith(".class")
-                    && !resource.path().endsWith("/module-info.class")
-//                    && !resource.path().contains("ServiceLoader") // hunch: removing it speeds up call graph generation.
-            ) {
-
+                    && !resource.path().endsWith("/module-info.class")) {
                 JavaClassType classSignature = identifierFactory.getClassType(reformatClassName(resource));
                 map.put(classSignature, resource.contentBytes());
             }

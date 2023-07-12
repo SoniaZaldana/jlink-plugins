@@ -16,4 +16,19 @@ public class StringValue extends JLinkValue {
     public String toString() {
         return "String: " + content;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof StringValue stringValue) {
+            return stringValue.getContent().equals(content);
+        }
+        return false;
+    }
+
+    @Override
+    public int hashCode() {
+        int hash = 7;
+        hash = 31 * hash + (content == null ? 0 : content.hashCode());
+        return hash;
+    }
 }

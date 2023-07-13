@@ -43,4 +43,12 @@ public abstract class Call {
         toString += " )";
         return toString;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof Call call) {
+            return call.getInvokeExpr().equals(invokeExpr) && call.getArgMap().equals(argMap);
+        }
+        return false;
+    }
 }

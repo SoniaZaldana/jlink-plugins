@@ -25,4 +25,12 @@ public class ServiceLoaderCall extends Call {
     public Stmt getStmt() {
         return this.stmt;
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o instanceof ServiceLoaderCall call) {
+            return super.equals(o) && call.getStmt().equals(stmt);
+        }
+        return false;
+    }
 }

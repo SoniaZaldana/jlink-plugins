@@ -36,26 +36,33 @@ public class IFDS {
     protected JavaIdentifierFactory factory;
     protected Map<ClassType, byte[]> allClasses;
     protected Map<ClassType, JavaView> viewMap;
+    private final String SERVICE_LOADER = "java.util.ServiceLoader";
+    private final String LOAD = "load";
+
+    /* The counters below are just to render a summary at the end of the analysis */
     int ifdsCounter;
     int constantCounter;
+    int unknownCounter;
 
     public IFDS(Map<ClassType, byte[]> allClasses) {
         ifdsCounter = 0;
         constantCounter = 0;
+        unknownCounter = 0;
         this.viewMap = new HashMap<>();
         this.allClasses = allClasses;
+
+        /* Generate a Soot view containing all reachable classes */
         factory = JavaIdentifierFactory.getInstance();
         JavaProject javaProject = JavaProject.builder(new JavaLanguage(9))
                 .addInputLocation(new JLinkInputLocation(allClasses))
                 .build();
 
         view = javaProject.createView();
-        System.out.println("finished resolving all classes");
     }
 
     /**
-     * Fetch SootClass from SootView
-     * @param targetClassName class name
+     * Fetch SootView from view containing all reachable classes
+     * @param targetClassName class to fetch.
      * @return
      */
     private SootClass<?> getClass(String targetClassName) {
@@ -74,19 +81,13 @@ public class IFDS {
         for (SootMethod sm : sootClass.getMethods()) {
 
             List<ServiceLoaderCall> calls = new ArrayList<>();
-            try {
-                if (sm.hasBody()) {
-                    sm.getBody().getStmts().forEach(stmt -> {
-                        if (isServiceLoaderCall(stmt)) {
-                            calls.add(new ServiceLoaderCall(stmt));
-                        }
-                    });
-                }
-            } catch (Exception e) {
-                // do nothing
+            if (sm.hasBody()) {
+                sm.getBody().getStmts().forEach(stmt -> {
+                    if (isServiceLoaderCall(stmt)) {
+                        calls.add(new ServiceLoaderCall(stmt));
+                    }
+                });
             }
-
-
             if (!calls.isEmpty()) {
                 methodsEnclosingSLCalls.put(sm, calls);
             }
@@ -96,15 +97,15 @@ public class IFDS {
 
     /**
      * Determines whether a given statement contains a call to ServiceLoader.load()
-     * @param stmt the stmt to evaluate
+     * @param stmt the soot stmt to evaluate
      * @return
      */
     private boolean isServiceLoaderCall(Stmt stmt) {
         if (stmt instanceof JAssignStmt assignStmt) {
             if (assignStmt.containsInvokeExpr() && assignStmt.getInvokeExpr() instanceof JStaticInvokeExpr invokeExpr) {
                 MethodSignature signature = invokeExpr.getMethodSignature();
-                return signature.getName().equals("load")
-                        && signature.getDeclClassType().getFullyQualifiedName().equals("java.util.ServiceLoader");
+                return signature.getName().equals(LOAD)
+                        && signature.getDeclClassType().getFullyQualifiedName().equals(SERVICE_LOADER);
             }
         }
         return false;
@@ -141,6 +142,8 @@ public class IFDS {
                      * ServiceLoader.load() constants i.e. "forward flow analysis"
                      * (2) We have insufficient information in the enclosing method and need to backtrack
                      * the call graph i.e. "backward flow analysis"
+                     *
+                     * In its current state, I have backtracked the implementation for (B) due to performance issues.
                      */
 
 
@@ -162,30 +165,39 @@ public class IFDS {
                     JavaView view = inputLocationWithSingleClass(sm.getDeclaringClassType()).createView();
                     JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(view.getMethod(sm.getSignature()).get(), view);
                     if (solver == null) {
+                        // Refer to note in #getSolver to see why this could be null.
+
                         try {
+                            // Document in report problematic classes.
                             writer.write("ClassName: " + targetClassName + " \n");
                             writer.write("\t\t Solver was null");
                             writer.write("\t\t" + call + "\n");
                         } catch (IOException e) {
-                            // do nothing
                         }
                         continue;
                     }
 
-                    /* Note, solver#equivResultsAt ensures we find the results for the given call based on equivalence,
-                       since they will likely be different objects since they originate from different views.
-                     */
-
                     List<Map<Local, JLinkValue>> results =
                             (List<Map<Local, JLinkValue>>) solver.equivResultsAt(call.getStmt()).stream().toList();
 
-                    if (addConstantParametersToCall(results, call)) {
+                    /* A note on solver#equivResultsAt:
+                       This is not a native Soot method. I added it to their JimpleSolver.
+                       This ensures we can fetch values from the solver based on statement (instruction) equivalence.
+                       The reason is that creating tightly constrained views (views containing only 1 class)
+                       requires regenerating views frequently. As a result, methods and statements will be
+                       different objects as they originate from different views.
+                     */
+
+
+                    /* Next we interpret the interprocedural results to see if we found any constant values */
+                    List<ServiceLoaderCall> constantCalls = getCallsWithConstantParams(results, call);
+
+                    if (! constantCalls.isEmpty()) {
 
                         /* We found sufficient information with the analysis above, so we add the call with
                          * the respective constant parameters and the enclosing method as the "entry method"
                          */
-                        entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
-                        ifdsCounter++;
+                        ifdsCounter += addConstantCalls(entryMethodsWithCalls, constantCalls, sm);
                     } else {
 
                         /* Tackling case (A.2) i.e. we examine just the enclosing class, but we backtrack
@@ -193,15 +205,21 @@ public class IFDS {
                          */
 
                         if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call)) {
-                            // do nothing
-                            System.out.println("We found " + entryMethodsWithCalls.size() + " calls in " + targetClassName);
                             ifdsCounter += entryMethodsWithCalls.size();
                         } else {
+                            /* We are likely in case (B) where we make calls to outside classes.
+                            * Though there are some classes with ServiceLoader.load(someParam) calls
+                            * that have no callers anywhere such as:
+                            * javax.imageio.spi.ServiceRegistry - 2 SL calls.
+                            */
+
+                            unknownCounter++;
+
                             try {
+                                // documenting the classes i can't solve yet.
                                 writer.write("ClassName: " + targetClassName + " \n");
                                 writer.write("\t\t" + call + "\n");
                             } catch (IOException e) {
-                                // do nothing
                             }
                         }
                     }
@@ -249,43 +267,46 @@ public class IFDS {
             solver.solve(entryMethod.getDeclaringClassType().getClassName());
             return solver;
         } catch (ResolveException e) {
-            // todo - probable avenue to expand call graph incrementally here.
-
-        } catch (Exception e) {
-            // todo - something else went wrong here - likely stuff with AccessController.doPrivileged()
+            /* Note, we get an exception here when the call graph tries to evaluate an edge to a function
+            in another class. It will complain about not being able to find the class in the view.
+            This is true, as the view only contains the class being evaluated for the sake of performance.
+            This is likely an avenue for incremental call graphs - catching this exception and increasing
+            the size of the view by 1. It might be a slippery slope if the graph grows exponentially.
+            For now, we return null if this happens.
+             */
+            return null;
         }
-
-        return null;
     }
 
+    /**
+     * Generates a complete call graph for a given class. In doing so, we can "backtrack"
+     * the call graph and identify any callers to the Soot method enclosing the ServiceLoader call.
+     * This enables us to run the interprocedural framework with an alternate entry method
+     * and hopefully propagate sufficient constant information.
+     * @param sm The soot method containing the ServiceLoader call
+     * @param entryMethodsWithCalls the list tracking the entry method that gave us sufficient constant info
+     *                              and the ServiceLoader call with constant information.
+     * @param call the ServiceLoader call we are interested in learning constant parameters.
+     * @return
+     */
     private boolean backtrackCallGraphInEnclosingClass(SootMethod sm,
                                                     List<EntryMethodWithCall> entryMethodsWithCalls,
                                                     ServiceLoaderCall call) {
 
         JavaView view = inputLocationWithSingleClass(sm.getDeclaringClassType()).createView();
+
+        /* Initialize call graph with all signatures in class */
         CallGraphAlgorithm cha =
                 new ClassHierarchyAnalysisAlgorithm(view);
 
-        /* Initialize call graph with all signatures in class */
-
-        /* Ensure you get the class from the correct view */
+        /* Ensure you get the class from the view we created above */
         JavaClassType classSignature = factory.getClassType(sm.getDeclaringClassType().getFullyQualifiedName());
         SootClass<?> sootClass = view.getClass(classSignature).get();
-        
         List<MethodSignature> classMethodSignatures = new ArrayList<>(sootClass.getMethods()
                 .stream().map(SootMethod::getSignature).toList());
 
-
-        try {
-            CallGraph cg = cha.initialize(classMethodSignatures);
-            // note - important to pass down method corresponding to examined view.
-            return backTrackRecursive(view.getMethod(sm.getSignature()).get(), entryMethodsWithCalls, call, cg, view);
-        } catch (Exception e) {
-            // todo do nothing for now. Likely an issue initializing call graph because of AccessController.doPrivileged()
-        }
-
-        return false;
-//        return call.hasConstantParameters();
+        CallGraph cg = cha.initialize(classMethodSignatures);
+        return backTrackRecursive(view.getMethod(sm.getSignature()).get(), entryMethodsWithCalls, call, cg, view); // note - important to pass down method corresponding to examined view.
     }
 
     private boolean backTrackRecursive(SootMethod sm,
@@ -312,20 +333,37 @@ public class IFDS {
                 JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> callerSolver = getSolver(callerMethod, view);
 
                 if (callerSolver == null) {
-                    continue; // todo - hopefully won't need this null condition check soon.
+                    continue; // Refer to note in #getSolver for context.
                 }
 
                 List<Map<Local, JLinkValue>> results = (List<Map<Local, JLinkValue>>)
                         callerSolver.equivResultsAt(call.getStmt()).stream().toList();
-                ServiceLoaderCall clone = call.clone();
-
-
-                if (addConstantParametersToCall(results, clone)) {
+                List<ServiceLoaderCall> constantCalls = getCallsWithConstantParams(results, call);
+                if (! constantCalls.isEmpty()) {
                     /* Base case 1: Direct caller method has sufficient info */
-                    entryMethodsWithCalls.add(new EntryMethodWithCall(callerMethod, clone));
                     foundConstants = true;
+                    addConstantCalls(entryMethodsWithCalls, constantCalls, callerMethod);
+
+                    /* Note, there is a possibility here that a certain function foo() has 2 calls
+                    to an enclosing service loader method and only one of the calls has sufficient information.
+                    i.e.
+
+                        private void foo(Class<?> c) {
+                            bar(c);
+                            bar(Test.class);
+                        }
+
+                        private void bar(Class<?> c) {
+                            ServiceLoader.load(c);
+                        }
+
+                        At the moment, I am not dealing with this situation and digging deeper
+                         with the call we couldn't find sufficient info for.
+                         TODO - can probably refactor this to account for this.
+                     */
                 } else {
-                    /* Recursive case: We need to backtrack once again */
+                    /* Recursive case: We need to backtrack once again.
+                       Note how caller method is the method we are backtracking from now */
                     foundConstants = foundConstants || backTrackRecursive(callerMethod, entryMethodsWithCalls, call, cg, view);
                 }
             }
@@ -334,20 +372,66 @@ public class IFDS {
         return foundConstants;
     }
 
-    public boolean addConstantParametersToCall(List<Map<Local, JLinkValue>> results, ServiceLoaderCall call) {
-
-        boolean foundPropagatedValues = false;
-        for (Immediate i : call.getArgMap().keySet()) {
-            for (Map<Local, JLinkValue> set : results) {
-                if (set.containsKey(i) && set.get(i) != JLinkIFDSProblem.TOP_VALUE && set.get(i) != null) {
-                    call.addPropValue(i, set.get(i));
-                    foundPropagatedValues = true;
+    /**
+     * Takes an interprocedural set of results and examines them to see if any constant values were
+     * propagated.
+     * Then, it matches them with their respective argument per the service loader call.
+     * Finally, we produce a list of <Method, ServiceLoader> calls to account for methods with multiple
+     * calls to methods enclosing ServiceLoader calls i.e.
+     *
+     * public void foo() {
+     *     bar(A.class);
+     *     bar(B.class);
+     * }
+     *
+     * public void bar(Class c) {
+     *     ServiceLoader.load(c);
+     * }
+     * @param results interprocedural set of results
+     * @param call the call we are interested in propagating constant values to
+     * @return
+     */
+    public List<ServiceLoaderCall> getCallsWithConstantParams(List<Map<Local, JLinkValue>> results,
+                                                              ServiceLoaderCall call) {
+        List<ServiceLoaderCall> calls = new ArrayList<>();
+        for (Map<Local, JLinkValue> result : results) {  // multiple results indicate multiple calls to SL enclosing methods
+            boolean foundConstant = false;
+            ServiceLoaderCall clone = call.clone();
+            for (Immediate arg : call.getArgMap().keySet()) { // immediate is soot lingo for method arguments
+                if (result.containsKey(arg)) {
+                    JLinkValue val = result.get(arg);
+                    if (val != null && val != JLinkIFDSProblem.TOP_VALUE) {
+                        clone.addPropValue(arg, val);
+                        foundConstant = true;
+                    }
                 }
             }
+            if (foundConstant) calls.add(clone);
         }
-        return foundPropagatedValues;
+        return calls;
     }
 
+    /**
+     * Adds service loader calls with constant parameters along with its entry method.
+     * Also ensures we don't have repeat ServiceLoader class values for the same method.
+     * @param entryMethodsWithCalls
+     * @param calls
+     * @param sm
+     * @return
+     */
+    public int addConstantCalls(List<EntryMethodWithCall> entryMethodsWithCalls,
+                                    List<ServiceLoaderCall> calls,
+                                    SootMethod sm) {
+        int constantCounter = 0;
+        for (ServiceLoaderCall call : calls) {
+            EntryMethodWithCall emc = new EntryMethodWithCall(sm, call);
+            if (! entryMethodsWithCalls.contains(emc)) {
+                entryMethodsWithCalls.add(emc);
+                constantCounter += 1;
+            }
+        }
+        return constantCounter;
+    }
 
     public class EntryMethodWithCall {
         private final SootMethod entryMethod;
@@ -364,6 +448,14 @@ public class IFDS {
 
         public ServiceLoaderCall getCall() {
             return this.call;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o instanceof EntryMethodWithCall emc) {
+                return emc.getEntryMethod().equals(entryMethod) && emc.getCall().equals(call);
+            }
+            return false;
         }
     }
 }

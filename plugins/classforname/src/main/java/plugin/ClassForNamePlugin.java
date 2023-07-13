@@ -83,7 +83,8 @@ public class ClassForNamePlugin extends AbstractPlugin {
                     String path = resource.path();
 
                     if (path.endsWith(".class") && !path.endsWith("/module-info.class")
-//                            && path.contains("javax/tools/ToolProvider.class") // testing condition
+                            && ! path.contains("FlightRecorderMXBeanImpl.class") // TODO - raises Soot issues. I opened a bug.
+//                            && path.contains("TerminalBuilder.class") // testing condition
                     ) {
                         System.out.println(path);
                         out.add(transform(resource));
@@ -100,6 +101,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
         }
         System.out.println("Constant calls: " + ifds.constantCounter);
         System.out.println("IFDS Calls: " + ifds.ifdsCounter);
+        System.out.println("Unknown constant calls: " + ifds.unknownCounter);
         return out.build();
     }
 

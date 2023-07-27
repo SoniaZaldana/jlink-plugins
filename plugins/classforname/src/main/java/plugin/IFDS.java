@@ -197,15 +197,17 @@ public class IFDS {
                         /* We found sufficient information with the analysis above, so we add the call with
                          * the respective constant parameters and the enclosing method as the "entry method"
                          */
-                        ifdsCounter += addConstantCalls(entryMethodsWithCalls, constantCalls, sm);
-                    } else {
+                        addConstantCalls(entryMethodsWithCalls, constantCalls, sm);
+                    }
+
+                    if (constantCalls.isEmpty() || constantCalls.size() < results.size()) {
+                        // note - if results.size() > than constant calls, it means we likely have some branching which caused unknown values.
 
                         /* Tackling case (A.2) i.e. we examine just the enclosing class, but we backtrack
                          * in the call graph in that class if necessary.
                          */
 
                         if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call)) {
-                            ifdsCounter += entryMethodsWithCalls.size();
                         } else {
                             /* We are likely in case (B) where we make calls to outside classes.
                             * Though there are some classes with ServiceLoader.load(someParam) calls
@@ -226,6 +228,7 @@ public class IFDS {
                 }
             }
             if (! entryMethodsWithCalls.isEmpty()) {
+                ifdsCounter += entryMethodsWithCalls.size();
                 analysisMap.put(sm, entryMethodsWithCalls);
             }
         }
@@ -419,18 +422,15 @@ public class IFDS {
      * @param sm
      * @return
      */
-    public int addConstantCalls(List<EntryMethodWithCall> entryMethodsWithCalls,
+    public void addConstantCalls(List<EntryMethodWithCall> entryMethodsWithCalls,
                                     List<ServiceLoaderCall> calls,
                                     SootMethod sm) {
-        int constantCounter = 0;
         for (ServiceLoaderCall call : calls) {
             EntryMethodWithCall emc = new EntryMethodWithCall(sm, call);
             if (! entryMethodsWithCalls.contains(emc)) {
                 entryMethodsWithCalls.add(emc);
-                constantCounter += 1;
             }
         }
-        return constantCounter;
     }
 
     public class EntryMethodWithCall {
@@ -453,7 +453,11 @@ public class IFDS {
         @Override
         public boolean equals(Object o) {
             if (o instanceof EntryMethodWithCall emc) {
-                return emc.getEntryMethod().equals(entryMethod) && emc.getCall().equals(call);
+                return emc.getCall().equals(call);
+                /* only check the call as we don't want repeat calls with the same values,
+                    regardless of entry method. TODO - likely we can get rid of tracking
+                    entry methods altogether but it's helpful debugging.
+                 */
             }
             return false;
         }

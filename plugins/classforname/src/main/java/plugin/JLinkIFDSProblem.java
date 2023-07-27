@@ -101,13 +101,16 @@ public class JLinkIFDSProblem
                 Map<Local, JLinkValue> constants = new HashMap<>();
 
                 for (int i = 0; i < destinationMethod.getParameterCount(); i++) {
+                    JLinkValue value = null;
                     if (args.get(i) instanceof Local argLocal) {
-                        constants.put(destinationMethod.getBody().getParameterLocal(i), source.get(argLocal));
+                        value = source.get(argLocal);
                     } else if (args.get(i) instanceof ClassConstant classConstant) {
-                        constants.put(destinationMethod.getBody().getParameterLocal(i), new ClassValue(classConstant.getValue()));
+                        value = new ClassValue(classConstant.getValue());
                     } else if (args.get(i) instanceof StringConstant stringConstant) {
-                        constants.put(destinationMethod.getBody().getParameterLocal(i), new StringValue(stringConstant.getValue()));
+                        value = new StringValue(stringConstant.getValue());
                     }
+
+                    if (value != null) constants.put(destinationMethod.getBody().getParameterLocal(i), value);
                 }
 
                 // fill in the other locals we don't know

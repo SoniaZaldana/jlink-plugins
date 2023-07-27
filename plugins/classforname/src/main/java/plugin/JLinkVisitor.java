@@ -3,13 +3,12 @@ package plugin;
 import sootup.core.jimple.basic.Local;
 import sootup.core.jimple.basic.Value;
 import sootup.core.jimple.common.constant.ClassConstant;
+import sootup.core.jimple.common.constant.NullConstant;
 import sootup.core.jimple.common.constant.StringConstant;
 import sootup.core.jimple.common.expr.AbstractInstanceInvokeExpr;
 import sootup.core.jimple.common.expr.AbstractInvokeExpr;
 import sootup.core.jimple.common.expr.JNewExpr;
-import sootup.core.jimple.common.ref.IdentityRef;
-import sootup.core.jimple.common.ref.JFieldRef;
-import sootup.core.jimple.common.ref.JInstanceFieldRef;
+import sootup.core.jimple.common.ref.*;
 import sootup.core.jimple.common.stmt.*;
 import sootup.core.jimple.javabytecode.stmt.*;
 import sootup.core.jimple.visitor.StmtVisitor;
@@ -214,15 +213,23 @@ public class JLinkVisitor implements StmtVisitor {
             } else if (right instanceof StringConstant constant) {
                 // this time the new value of lLocal is the string constant
                 setOut.put(lLocal, new StringValue(constant.getValue()));
+            } else if (right instanceof NullConstant) {
+                setOut.put(lLocal, new NullValue());
             } else if (right instanceof JNewExpr newExpr) {
                 if (newExpr.getType().toString().equals(JAVA_LANG_STRING_BUILDER)) {
                     setOut.putAll(setIn);
+                } else {
+                    setOut.put(lLocal, new ObjectValue(newExpr.getType())); // establishes that there is an object value of this type in this slot.
                 }
 
-                // TODO do we need to do anything with Class for "new"?
-
-            } else if (right instanceof JInstanceFieldRef) {
-                setOut.put(lLocal, TOP_VALUE);
+            } else if (right instanceof JInstanceFieldRef instanceFieldRef) {
+                Local base = instanceFieldRef.getBase();
+                if (setIn.get(base) instanceof ObjectValue objectValue) {
+                    JLinkValue fieldValue = objectValue.getFieldValue(instanceFieldRef.getFieldSignature());
+                    if (fieldValue != null) {
+                        setOut.put(lLocal, fieldValue);
+                    }
+                }
             } else if (right instanceof JFieldRef fRef) {
                 JLinkValue value;
                 if (right instanceof ClassConstant constant) {
@@ -230,6 +237,8 @@ public class JLinkVisitor implements StmtVisitor {
                     value = new ClassValue(constant.getValue());
                 } else if (right instanceof StringConstant strConstant) {
                     value = new StringValue(strConstant.getValue());
+                } else if (right instanceof NullValue) {
+                    value = new NullValue();
                 } else {
                     value = lookUpFieldRef(fRef);
                 }
@@ -238,8 +247,26 @@ public class JLinkVisitor implements StmtVisitor {
                 // we don't support any other cases, so we assign TOP.
                 setOut.put(lLocal, TOP_VALUE);
             }
+        } else if (left instanceof JInstanceFieldRef fieldRef) {
+
+            if (setIn.get(fieldRef.getBase()) instanceof ObjectValue objectValue) {
+                JLinkValue value;
+                if (right instanceof Local rLocal) {
+                    value = setIn.get(rLocal);
+                } else if (right instanceof ClassConstant constant) {
+                    value = new ClassValue(constant.getValue());
+                } else if (right instanceof StringConstant stringConstant) {
+                    value = new StringValue(stringConstant.getValue());
+                } else if (right instanceof NullValue) {
+                    value = new NullValue();
+                } else {
+                    value = TOP_VALUE;
+                }
+                objectValue.addField(fieldRef.getFieldSignature(), value);
+                setOut.put(fieldRef.getBase(), objectValue);
+            }
         } else {
-            // if left is not a local, we don't care.
+            // we do not care.
         }
     }
     
@@ -256,6 +283,10 @@ public class JLinkVisitor implements StmtVisitor {
                             // we then retrieve its constant value if it is a class constant
                             if (right instanceof ClassConstant constant) {
                                 return new ClassValue(constant.getValue());
+                            } else if (right instanceof StringConstant constant) {
+                                return new StringValue(constant.getValue());
+                            } else if (right instanceof NullValue) {
+                                return new NullValue();
                             }
                         }
                     }
@@ -275,7 +306,9 @@ public class JLinkVisitor implements StmtVisitor {
         if (left instanceof Local lLocal) {
             if (right instanceof IdentityRef) {
                 // the local is not a constant and depends on external input
-                setOut.put(lLocal, setIn.get(lLocal));
+                if (setIn.get(lLocal) != null) {
+                    setOut.put(lLocal, setIn.get(lLocal));
+                }
             }
         }
     }

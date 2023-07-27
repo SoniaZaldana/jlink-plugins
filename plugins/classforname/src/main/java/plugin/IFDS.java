@@ -31,6 +31,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.*;
 
+import static plugin.JLinkIFDSProblem.TOP_VALUE;
+
 public class IFDS {
     protected JavaView view;
     protected JavaIdentifierFactory factory;
@@ -38,6 +40,8 @@ public class IFDS {
     protected Map<ClassType, JavaView> viewMap;
     private final String SERVICE_LOADER = "java.util.ServiceLoader";
     private final String LOAD = "load";
+    private final String INIT = "<init>";
+    private final String THIS_REF = "l0";
 
     /* The counters below are just to render a summary at the end of the analysis */
     int ifdsCounter;
@@ -112,8 +116,49 @@ public class IFDS {
     }
 
 
+    /**
+     * Determines whether a statement initializes an object of a given class type
+     * @param stmt
+     * @param innerType
+     * @return
+     */
+    private boolean initializesInnerClass(Stmt stmt, ClassType innerType) {
+        if (stmt instanceof JInvokeStmt invokeStmt) {
+            if (invokeStmt.getInvokeExpr() instanceof JSpecialInvokeExpr specialInvoke) {
+                MethodSignature signature = specialInvoke.getMethodSignature();
+                return signature.getDeclClassType().equals(innerType)
+                        && signature.getSubSignature().getName().equals(INIT);
+            }
+        }
+        return false;
+    }
+
+    private Map<SootMethod, List<Stmt>> getMethodsInvokingInnerClass(SootClass<?> outerClass, ClassType innerClassType) {
+        Map<SootMethod, List<Stmt>> map = new HashMap<>();
+        for (SootMethod sm : outerClass.getMethods()) {
+            List<Stmt> initStmts = new ArrayList<>();
+            if (sm.hasBody()) {
+                sm.getBody().getStmts().forEach(stmt -> {
+                    if (initializesInnerClass(stmt, innerClassType)) {
+                        initStmts.add(stmt);
+                    }
+                });
+            }
+            if (! initStmts.isEmpty()) {
+                map.put(sm, initStmts);
+            }
+        }
+        return map;
+    }
+
     public Map<SootMethod, List<EntryMethodWithCall>> doServiceLoaderStaticAnalysis(String targetClassName, FileWriter writer) {
         SootClass<?> sc = getClass(targetClassName);
+
+        /* Outer class will come in handy for inner class analysis */
+        SootClass outerClass = null;
+        if (sc.getOuterClass().isPresent()) {
+            outerClass = view.getClass(sc.getOuterClass().get()).get();
+        }
 
         /* We first find all methods in the class with service loader calls */
         Map<SootMethod, List<ServiceLoaderCall>> methodsEnclosingSLCalls = getEnclosingMethodsWithServiceLoaderCalls(sc);
@@ -122,6 +167,7 @@ public class IFDS {
         Map<SootMethod, List<EntryMethodWithCall>> analysisMap = new HashMap<>();
         for (SootMethod sm : methodsEnclosingSLCalls.keySet()) {
             List<EntryMethodWithCall> entryMethodsWithCalls = new ArrayList<>();
+
             for (ServiceLoaderCall call : methodsEnclosingSLCalls.get(sm)) {
                 if (call.hasConstantParameters()) {
                     /* Call has constant parameters. We simply add the "entry method" as the enclosing method */
@@ -162,7 +208,7 @@ public class IFDS {
                      *
                      */
 
-                    JavaView view = inputLocationWithSingleClass(sm.getDeclaringClassType()).createView();
+                    JavaView view = inputLocationWithClasses(List.of(sm.getDeclaringClassType())).createView();
                     JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(view.getMethod(sm.getSignature()).get(), view);
                     if (solver == null) {
                         // Refer to note in #getSolver to see why this could be null.
@@ -208,6 +254,77 @@ public class IFDS {
                          */
 
                         if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call)) {
+
+                        } else if (outerClass != null) {
+                            /* Let's try using the outer class to see if this helps us determine constant values */
+
+                            /* First, determine which methods in the outer class initialize this inner class */
+                            Map<SootMethod, List<Stmt>> initMethodsOuter = getMethodsInvokingInnerClass(outerClass, sc.getType());
+
+                            /* Generate view that includes both outer and inner class */
+                            view = inputLocationWithClasses(new ArrayList<>(List.of(sc.getType(), outerClass.getType())))
+                                    .createView();
+
+                            boolean foundConstant = false;
+
+                            for (SootMethod initMethod : initMethodsOuter.keySet()) {
+
+                                /* Per method, set initializer method as entry method to propagate an object */
+                                solver = getSolver(view.getMethod(initMethod.getSignature()).get(), view);
+
+                                for (Stmt initStmt : initMethodsOuter.get(initMethod)) {
+
+                                    /* Determine the value of the object directly after the initialization stmt */
+                                    results =
+                                            (List<Map<Local, JLinkValue>>) solver.equivResultsAt(initStmt).stream().toList();
+
+                                    /* Fetch the object value from results */
+                                    if (initStmt.getInvokeExpr() instanceof AbstractInstanceInvokeExpr instanceInvokeExpr) {
+                                        Local base = instanceInvokeExpr.getBase();
+                                        for (Map<Local, JLinkValue> result : results) {
+                                            JLinkValue value = result.get(base);
+                                            if (value instanceof ObjectValue) {
+
+                                                /* Generate seed values for method enclosing SL call that includes object */
+                                                Map<Local, JLinkValue> seedMap = new HashMap<>();
+                                                for (Local l : initMethod.getBody().getLocals()) {
+                                                    if (l.getName().equals(THIS_REF)) {
+                                                        /* this ref should point to object with propagated values */
+                                                        seedMap.put(l, value);
+                                                    } else {
+                                                        seedMap.put(l, TOP_VALUE);
+                                                    }
+                                                }
+
+                                                /* Call the framework with a modified set of initial seeds */
+                                                solver = getSolver(view.getMethod(sm.getSignature()).get(), view, seedMap);
+                                                List<Map<Local, JLinkValue>> innerClassConstants =
+                                                        (List<Map<Local, JLinkValue>>) solver.equivResultsAt(call.getStmt()).stream().toList();
+                                                constantCalls = getCallsWithConstantParams(innerClassConstants, call);
+                                                if (! constantCalls.isEmpty()) {
+                                                    addConstantCalls(entryMethodsWithCalls, constantCalls, initMethod);
+                                                    foundConstant = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            /* this is just for my personal tracking. TODO delete this eventually */
+
+                            if (! foundConstant) {
+                                unknownCounter++;
+
+                                try {
+                                    // documenting the classes i can't solve yet.
+                                    writer.write("ClassName: " + targetClassName + " \n");
+                                    writer.write("\t\t" + call + "\n");
+                                } catch (IOException e) {
+                                }
+                            }
+
+
                         } else {
                             /* We are likely in case (B) where we make calls to outside classes.
                             * Though there are some classes with ServiceLoader.load(someParam) calls
@@ -237,35 +354,41 @@ public class IFDS {
     }
 
     /**
-     * Generates an input location with a single class
-     * @param clazz the class to include in the input location
+     * Creates a constricted java project which only includes the given classes
+     * @param classes
      * @return
      */
-    private JavaProject inputLocationWithSingleClass(ClassType clazz) {
-        Map<ClassType, byte[]> classes = new HashMap<>();
-        allClasses.keySet()
-                .stream()
-                .filter(type -> type.equals(clazz))
-                .findFirst().ifPresent(classType -> classes.put(classType, allClasses.get(classType)));
+    private JavaProject inputLocationWithClasses(List<ClassType> classes) {
+        Map<ClassType, byte[]> classMap = new HashMap<>();
+        for (ClassType c : classes) {
+            classMap.put(c, allClasses.get(c));
+        }
 
         return JavaProject.builder(new JavaLanguage(9))
-                .addInputLocation(new JLinkInputLocation(classes))
+                .addInputLocation(new JLinkInputLocation(classMap))
                 .build();
     }
 
+    public JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> getSolver(SootMethod entryMethod, JavaView view) {
+        return getSolver(entryMethod, view, null);
+    }
+
+
     /**
-     * Creates interprocedural solver based on given java view
-     * @param entryMethod the entry method for analysis
-     * @param view the java view containing classes to analyze
+     * Creates interprocedural solver based on given java view and initial seed values
+     * @param entryMethod entry method for analysis
+     * @param view java view containing classes to analyze
+     * @param seedValues initial propagation values. May be null.
      * @return
      */
-    public JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> getSolver(SootMethod entryMethod, JavaView view) {
+    public JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> getSolver(SootMethod entryMethod, JavaView view,
+                                                                               Map<Local, JLinkValue> seedValues) {
         try {
             JimpleBasedInterproceduralCFG icfg = new JimpleBasedInterproceduralCFG(view,
                     entryMethod.getSignature(),
                     false,
                     false);
-            JLinkIFDSProblem problem = new JLinkIFDSProblem(icfg, entryMethod);
+            JLinkIFDSProblem problem = new JLinkIFDSProblem(icfg, entryMethod, seedValues);
             JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = new JimpleIFDSSolver<>(problem);
             solver.solve(entryMethod.getDeclaringClassType().getClassName());
             return solver;
@@ -296,7 +419,7 @@ public class IFDS {
                                                     List<EntryMethodWithCall> entryMethodsWithCalls,
                                                     ServiceLoaderCall call) {
 
-        JavaView view = inputLocationWithSingleClass(sm.getDeclaringClassType()).createView();
+        JavaView view = inputLocationWithClasses(List.of(sm.getDeclaringClassType())).createView();
 
         /* Initialize call graph with all signatures in class */
         CallGraphAlgorithm cha =
@@ -403,7 +526,7 @@ public class IFDS {
             for (Immediate arg : call.getArgMap().keySet()) { // immediate is soot lingo for method arguments
                 if (result.containsKey(arg)) {
                     JLinkValue val = result.get(arg);
-                    if (val != null && val != JLinkIFDSProblem.TOP_VALUE) {
+                    if (val != null && val != TOP_VALUE) {
                         clone.addPropValue(arg, val);
                         foundConstant = true;
                     }

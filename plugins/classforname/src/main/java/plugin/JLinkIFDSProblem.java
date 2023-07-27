@@ -12,12 +12,15 @@ import sootup.core.jimple.basic.Local;
 import sootup.core.jimple.basic.Value;
 import sootup.core.jimple.common.constant.ClassConstant;
 import sootup.core.jimple.common.constant.StringConstant;
+import sootup.core.jimple.common.expr.AbstractInstanceInvokeExpr;
 import sootup.core.jimple.common.expr.AbstractInvokeExpr;
+import sootup.core.jimple.common.ref.JInstanceFieldRef;
 import sootup.core.jimple.common.ref.JStaticFieldRef;
 import sootup.core.jimple.common.stmt.AbstractDefinitionStmt;
 import sootup.core.jimple.common.stmt.JReturnStmt;
 import sootup.core.jimple.common.stmt.Stmt;
 import sootup.core.model.SootMethod;
+import sootup.core.types.UnknownType;
 
 import java.util.*;
 
@@ -27,10 +30,14 @@ public class JLinkIFDSProblem
     public static final JLinkValue TOP_VALUE = new JLinkValue();
     private SootMethod entryMethod;
     private Map<SootMethod, Map<Local, JLinkValue>> methodToConstants;
-    public JLinkIFDSProblem(InterproceduralCFG<Stmt, SootMethod> icfg, SootMethod entryMethod) {
+    private Map<Local, JLinkValue> seedValues;
+
+    public JLinkIFDSProblem(InterproceduralCFG<Stmt, SootMethod> icfg, SootMethod entryMethod,
+                            Map<Local, JLinkValue> seedValues) {
         super(icfg);
         this.entryMethod = entryMethod;
         this.methodToConstants = new HashMap<>();
+        this.seedValues = seedValues;
     }
 
     @Override
@@ -64,19 +71,14 @@ public class JLinkIFDSProblem
 
         if (curr instanceof AbstractDefinitionStmt<?,?> definitionStmt) {
             final Value leftOp = definitionStmt.getLeftOp();
-            if (leftOp instanceof Local) {
+            if (leftOp instanceof Local || leftOp instanceof JInstanceFieldRef) {
                 return new FlowFunction<Map<Local, JLinkValue>>() {
                     @Override
                     public Set<Map<Local, JLinkValue>> computeTargets(Map<Local, JLinkValue> source) {
                         Set<Map<Local, JLinkValue>> res = new LinkedHashSet<>();
                         JLinkVisitor visitor;
-                        if (source.isEmpty() ||
-                                (methodToConstants.containsKey(m) && methodToConstants.get(m).size() > source.size())) {
-                            // We carried forward more information than what source reflects.
-                            visitor = new JLinkVisitor(methodToConstants.get(m));
-                        } else {
-                            visitor = new JLinkVisitor(source);
-                        }
+
+                        visitor = new JLinkVisitor(source);
                         if (definitionStmt.getRightOp() instanceof JStaticFieldRef) {
                             // TODO gotta do something with the clinit.
                         }
@@ -92,13 +94,25 @@ public class JLinkIFDSProblem
     }
 
     FlowFunction<Map<Local, JLinkValue>> getCallFlow(Stmt callStmt, final SootMethod destinationMethod) {
-        AbstractInvokeExpr invokeExpr = callStmt.getInvokeExpr();
+        final AbstractInvokeExpr invokeExpr = callStmt.getInvokeExpr();
+        final Local base;
+        if (invokeExpr instanceof AbstractInstanceInvokeExpr instanceInvokeExpr) {
+            base = instanceInvokeExpr.getBase();
+        } else {
+            base = null;
+        }
         final List<Immediate> args = invokeExpr.getArgs();
+
         return new FlowFunction<Map<Local, JLinkValue>>() {
             @Override
             public Set<Map<Local, JLinkValue>> computeTargets(Map<Local, JLinkValue> source) {
                 LinkedHashSet<Map<Local, JLinkValue>> res = new LinkedHashSet<>();
                 Map<Local, JLinkValue> constants = new HashMap<>();
+
+                /* Propagate base as "this" reference to caller method.*/
+                if (base != null) {
+                    constants.put(new Local("l0", UnknownType.getInstance()), source.get(base));
+                }
 
                 for (int i = 0; i < destinationMethod.getParameterCount(); i++) {
                     JLinkValue value = null;
@@ -185,12 +199,15 @@ public class JLinkIFDSProblem
 
     @Override
     protected Map<Local, JLinkValue> createZeroValue() {
-        Map<Local, JLinkValue> entryMap = new HashMap<>();
-        for (Local l : entryMethod.getBody().getLocals()) {
-            entryMap.put(l, TOP_VALUE);
+        if (seedValues != null) {
+            return seedValues;
+        } else {
+            Map<Local, JLinkValue> entryMap = new HashMap<>();
+            for (Local l : entryMethod.getBody().getLocals()) {
+                entryMap.put(l, TOP_VALUE);
+            }
+            return entryMap;
         }
-
-        return entryMap;
     }
 
     @Override

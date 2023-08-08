@@ -1,4 +1,4 @@
-package plugin;
+package plugin.JLinkValues;
 
 import sootup.core.signatures.FieldSignature;
 import sootup.core.types.ClassType;
@@ -6,7 +6,7 @@ import sootup.core.types.ClassType;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ObjectValue extends JLinkValue {
+public class ObjectValue implements JLinkValue {
     private ClassType classType;
     private Map<FieldSignature, JLinkValue> fields;
 
@@ -52,6 +52,11 @@ public class ObjectValue extends JLinkValue {
         hash = 31 * hash + (fields == null ? 0 : fields.hashCode());
         hash = 31 * hash + (classType == null ? 0 : classType.hashCode());
         return hash;
+    }
+
+    @Override
+    public boolean isConstant() {
+        return false;
     }
 }
 

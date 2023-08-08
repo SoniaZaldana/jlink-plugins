@@ -1,6 +1,11 @@
 package plugin;
 
 import heros.InterproceduralCFG;
+import plugin.JLinkValues.ClassValue;
+import plugin.JLinkValues.JLinkValue;
+import plugin.JLinkValues.NullValue;
+import plugin.JLinkValues.ObjectValue;
+import plugin.JLinkValues.StringValue;
 import plugin.inputlocation.JLinkInputLocation;
 import sootup.analysis.interprocedural.icfg.JimpleBasedInterproceduralCFG;
 import sootup.analysis.interprocedural.ifds.JimpleIFDSSolver;
@@ -21,8 +26,6 @@ import sootup.core.jimple.common.stmt.*;
 import sootup.core.model.SootClass;
 import sootup.core.model.SootMethod;
 import sootup.core.signatures.MethodSignature;
-
-
 import sootup.core.types.ClassType;
 import sootup.core.types.Type;
 import sootup.java.core.JavaIdentifierFactory;
@@ -41,10 +44,10 @@ public class IFDS {
     protected JavaIdentifierFactory factory;
     protected Map<ClassType, byte[]> allClasses;
     protected Map<ClassType, JavaView> viewMap;
-    private final String SERVICE_LOADER = "java.util.ServiceLoader";
-    private final String LOAD = "load";
-    private final String INIT = "<init>";
-    private final String CLINIT = "<clinit>";
+    private static final String SERVICE_LOADER = "java.util.ServiceLoader";
+    private static final String LOAD = "load";
+    private static final String INIT = "<init>";
+    private static final String CLINIT = "<clinit>";
 
     /* The counters below are just to render a summary at the end of the analysis */
     int ifdsCounter;
@@ -77,10 +80,6 @@ public class IFDS {
         return view.getClass(classSignature).get();
     }
 
-    private boolean isConstant(JLinkValue value) {
-        return value instanceof ClassValue || value instanceof StringValue || value instanceof NullValue;
-    }
-
     /**
      * Returns a map of an enclosing Soot Method and a list of all service loader calls inside of it
      * in a given class.
@@ -88,9 +87,8 @@ public class IFDS {
      * @return
      */
     private Map<SootMethod, List<ServiceLoaderCall>> getEnclosingMethodsWithServiceLoaderCalls(SootClass<?> sootClass) {
-        Map<SootMethod, List<ServiceLoaderCall>> methodsEnclosingSLCalls = new HashMap<>();
+        Map<SootMethod, List<ServiceLoaderCall>> methodsEnclosingSLCalls = null;
         for (SootMethod sm : sootClass.getMethods()) {
-
             List<ServiceLoaderCall> calls = new ArrayList<>();
             if (sm.hasBody()) {
                 sm.getBody().getStmts().forEach(stmt -> {
@@ -100,6 +98,9 @@ public class IFDS {
                 });
             }
             if (!calls.isEmpty()) {
+                if (methodsEnclosingSLCalls == null) {
+                    methodsEnclosingSLCalls = new HashMap<>();
+                }
                 methodsEnclosingSLCalls.put(sm, calls);
             }
         }
@@ -146,8 +147,15 @@ public class IFDS {
         return false;
     }
 
+    /**
+     * Returns a map of methods that initialize an inner class and a list of the statements that
+     * accomplish that.
+     * @param outerClass the outer class
+     * @param innerClassType the inner class to initialize
+     * @return
+     */
     private Map<SootMethod, List<Stmt>> getMethodsInvokingInnerClass(SootClass<?> outerClass, ClassType innerClassType) {
-        Map<SootMethod, List<Stmt>> map = new HashMap<>();
+        Map<SootMethod, List<Stmt>> map = null;
         for (SootMethod sm : outerClass.getMethods()) {
             List<Stmt> initStmts = new ArrayList<>();
             if (sm.hasBody()) {
@@ -158,24 +166,33 @@ public class IFDS {
                 });
             }
             if (! initStmts.isEmpty()) {
+                if (map == null) {
+                    map = new HashMap<>();
+                }
                 map.put(sm, initStmts);
             }
         }
         return map;
     }
 
-    private Map<ValueHolder, JLinkValue> getConstantStaticValues(SootClass<?> sc) {
+    /**
+     * Pick up static fields set by the end of the clinit method execution.
+     * We will treat these as final and use them as seeds for further analysis.
+     * @param clazz the class to evaluate
+     * @param clinitView constricted view containing only 1 class.
+     * @return
+     */
+    private Map<ValueHolder, JLinkValue> getConstantStaticValues(ClassType clazz, JavaView clinitView) {
         Map<ValueHolder, JLinkValue> clinitSeeds = null;
-        Optional<? extends SootMethod> clinitOpt = sc.getMethods().stream()
+        Optional<? extends SootMethod> clinitOpt = clinitView.getClass(clazz)
+                .get()
+                .getMethods()
+                .stream()
                 .filter(m -> m.getName().equals(CLINIT))
                 .findAny();
         if (clinitOpt.isPresent()) {
             SootMethod clinit = clinitOpt.get();
-            JavaView clinitView = inputLocationWithClasses(List.of(sc.getType())).createView();
-            clinit = clinitView.getMethod(clinit.getSignature()).get();
-            JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> clinitSolver = getSolver(clinit, clinitView, null, sc.getType());
-
-
+            JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> clinitSolver = getSolver(clinit, clinitView, null, clazz);
             List<Stmt> lastStmts = clinit.getBody()
                     .getStmts().stream()
                     .filter(s -> s instanceof JReturnVoidStmt).toList();
@@ -190,7 +207,7 @@ public class IFDS {
                         for (ValueHolder valueHolder : result.keySet()) {
                             if (valueHolder instanceof StaticFieldHolder) {
                                 JLinkValue value = result.get(valueHolder);
-                                if (isConstant(value) && ! clinitSeeds.containsKey(valueHolder)) {
+                                if (value != null && value.isConstant() && ! clinitSeeds.containsKey(valueHolder)) {
                                     clinitSeeds.put(valueHolder, value);
                                 }
                             }
@@ -198,18 +215,16 @@ public class IFDS {
                     }
                 }
             }
-
-
         }
-
         return clinitSeeds;
     }
 
     public Map<SootMethod, List<EntryMethodWithCall>> doServiceLoaderStaticAnalysis(String targetClassName, FileWriter writer) {
         SootClass<?> sc = getClass(targetClassName);
+        ClassType currentClassType = sc.getType();
 
         /* Outer class will come in handy for inner class analysis */
-        SootClass outerClass = null;
+        SootClass<?> outerClass = null;
         if (sc.getOuterClass().isPresent()) {
             outerClass = view.getClass(sc.getOuterClass().get()).get();
         }
@@ -217,22 +232,25 @@ public class IFDS {
         /* We first find all methods in the class with service loader calls */
         Map<SootMethod, List<ServiceLoaderCall>> methodsEnclosingSLCalls = getEnclosingMethodsWithServiceLoaderCalls(sc);
 
-
-        /* Pick up final static values */
-        Map<ValueHolder, JLinkValue> clinitSeeds = null;
-        if (! methodsEnclosingSLCalls.isEmpty()) {
-            clinitSeeds = getConstantStaticValues(sc);
+        if (methodsEnclosingSLCalls == null) {
+            return null;
         }
 
+        /* Generate a constricted view with only the current class being inspected - This speeds up analysis significantly. */
+        JavaView view = inputLocationWithClasses(List.of(currentClassType)).createView();
+
+        /* Pick up final static values */
+        Map<ValueHolder, JLinkValue> clinitSeeds = getConstantStaticValues(currentClassType, view);
+
         /* Then, we perform analysis on each of these methods and calls to determine constant values */
-        Map<SootMethod, List<EntryMethodWithCall>> analysisMap = new HashMap<>();
+        Map<SootMethod, List<EntryMethodWithCall>> analysisMap = null;
         for (SootMethod sm : methodsEnclosingSLCalls.keySet()) {
             List<EntryMethodWithCall> entryMethodsWithCalls = new ArrayList<>();
 
             for (ServiceLoaderCall call : methodsEnclosingSLCalls.get(sm)) {
                 if (call.hasConstantParameters()) {
                     /* Call has constant parameters. We simply add the "entry method" as the enclosing method */
-                    entryMethodsWithCalls.add(new EntryMethodWithCall(sm, call));
+                    addConstantCalls(entryMethodsWithCalls, List.of(call), sm);
                     constantCounter++;
                 } else {
                     /* Call doesn't have readily available constants, so we do further analysis */
@@ -269,9 +287,8 @@ public class IFDS {
                      *
                      */
 
-                    JavaView view = inputLocationWithClasses(List.of(sm.getDeclaringClassType())).createView();
                     JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(view.getMethod(sm.getSignature()).get(),
-                            view, clinitSeeds, sc.getType());
+                            view, clinitSeeds, currentClassType);
                     if (solver == null) {
                         // Refer to note in #getSolver to see why this could be null.
 
@@ -315,29 +332,34 @@ public class IFDS {
                          * in the call graph in that class if necessary.
                          */
 
-                        if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call, clinitSeeds)) {
+                        if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call, clinitSeeds, view)) {
 
                         } else if (outerClass != null) {
                             /* Let's try using the outer class to see if this helps us determine constant values */
+                            ClassType outerClassType = outerClass.getType();
 
                             /* First, determine which methods in the outer class initialize this inner class */
-                            Map<SootMethod, List<Stmt>> initMethodsOuter = getMethodsInvokingInnerClass(outerClass, sc.getType());
+                            Map<SootMethod, List<Stmt>> initMethodsOuter = getMethodsInvokingInnerClass(outerClass, currentClassType);
+                            if (initMethodsOuter == null) {
+                                break;
+                            }
 
                             /* Generate view that includes both outer and inner class */
-                            view = inputLocationWithClasses(new ArrayList<>(List.of(sc.getType(), outerClass.getType())))
+                            view = inputLocationWithClasses(new ArrayList<>(List.of(currentClassType, outerClassType)))
                                     .createView();
 
-                            boolean foundConstant = false;
+                            /* Generate outer class clinit seeds */
+                            Map<ValueHolder, JLinkValue> outerClinitSeeds = getConstantStaticValues(outerClassType, view);
 
+                            boolean foundConstant = false;
                             for (SootMethod initMethod : initMethodsOuter.keySet()) {
 
                                 /* Per method, set initializer method as entry method to propagate an object */
-                                Map<ValueHolder, JLinkValue> outerClinitSeeds = getConstantStaticValues(outerClass);
-                                solver = getSolver(view.getMethod(initMethod.getSignature()).get(), view, outerClinitSeeds, outerClass.getType());
+                                solver = getSolver(view.getMethod(initMethod.getSignature()).get(), view, outerClinitSeeds, outerClassType);
 
                                 for (Stmt initStmt : initMethodsOuter.get(initMethod)) {
 
-                                    /* Determine the value of the object directly after the initialization stmt */
+                                    /* Determine the value of the object directly after the inner class object initialization stmt */
                                     results =
                                             (List<Map<ValueHolder, JLinkValue>>) solver.equivResultsAt(initStmt).stream().toList();
 
@@ -363,11 +385,8 @@ public class IFDS {
                                                     seedMap.putAll(outerClinitSeeds);
                                                 }
 
-
-                                                // todo above we want to combine with the clinit values we know
-
                                                 /* Call the framework with a modified set of initial seeds */
-                                                solver = getSolver(view.getMethod(sm.getSignature()).get(), view, seedMap, sc.getType());
+                                                solver = getSolver(view.getMethod(sm.getSignature()).get(), view, seedMap, currentClassType);
                                                 List<Map<ValueHolder, JLinkValue>> innerClassConstants =
                                                         (List<Map<ValueHolder, JLinkValue>>) solver.equivResultsAt(call.getStmt()).stream().toList();
                                                 constantCalls = getCallsWithConstantParams(innerClassConstants, call);
@@ -416,6 +435,9 @@ public class IFDS {
             }
             if (! entryMethodsWithCalls.isEmpty()) {
                 ifdsCounter += entryMethodsWithCalls.size();
+                if (analysisMap == null) {
+                    analysisMap = new HashMap<>();
+                }
                 analysisMap.put(sm, entryMethodsWithCalls);
             }
         }
@@ -474,27 +496,28 @@ public class IFDS {
      *                              and the ServiceLoader call with constant information.
      * @param call the ServiceLoader call we are interested in learning constant parameters.
      * @param clinitSeeds final static field values
+     * @param constrictedView view containing only 1 class
      * @return
      */
     private boolean backtrackCallGraphInEnclosingClass(SootMethod sm,
                                                     List<EntryMethodWithCall> entryMethodsWithCalls,
-                                                    ServiceLoaderCall call, Map<ValueHolder, JLinkValue> clinitSeeds) {
-
-        JavaView view = inputLocationWithClasses(List.of(sm.getDeclaringClassType())).createView();
+                                                    ServiceLoaderCall call,
+                                                    Map<ValueHolder, JLinkValue> clinitSeeds,
+                                                    JavaView constrictedView) {
 
         /* Initialize call graph with all signatures in class */
         CallGraphAlgorithm cha =
-                new ClassHierarchyAnalysisAlgorithm(view);
+                new ClassHierarchyAnalysisAlgorithm(constrictedView);
 
         /* Ensure you get the class from the view we created above */
         JavaClassType classSignature = factory.getClassType(sm.getDeclaringClassType().getFullyQualifiedName());
-        SootClass<?> sootClass = view.getClass(classSignature).get();
+        SootClass<?> sootClass = constrictedView.getClass(classSignature).get();
         List<MethodSignature> classMethodSignatures = new ArrayList<>(sootClass.getMethods()
                 .stream().map(SootMethod::getSignature).toList());
 
         CallGraph cg = cha.initialize(classMethodSignatures);
-        return backTrackRecursive(view.getMethod(sm.getSignature()).get(), entryMethodsWithCalls,
-                call, cg, view, clinitSeeds, classSignature); // note - important to pass down method corresponding to examined view.
+        return backTrackRecursive(constrictedView.getMethod(sm.getSignature()).get(), entryMethodsWithCalls,
+                call, cg, constrictedView, clinitSeeds, classSignature); // note - important to pass down method corresponding to examined view.
     }
 
     private boolean backTrackRecursive(SootMethod sm,
@@ -608,7 +631,9 @@ public class IFDS {
                     foundConstant = true;
                 }
             }
-            if (foundConstant) calls.add(clone);
+            if (foundConstant) {
+                calls.add(clone);
+            }
         }
         return calls;
     }

@@ -5,6 +5,10 @@ import heros.FlowFunction;
 import heros.FlowFunctions;
 import heros.InterproceduralCFG;
 import heros.flowfunc.KillAll;
+import plugin.JLinkValues.ClassValue;
+import plugin.JLinkValues.JLinkValue;
+import plugin.JLinkValues.NullValue;
+import plugin.JLinkValues.StringValue;
 import sootup.analysis.interprocedural.ifds.DefaultJimpleIFDSTabulationProblem;
 import sootup.core.jimple.basic.Immediate;
 import sootup.core.jimple.basic.Local;
@@ -27,7 +31,7 @@ import java.util.*;
 public class JLinkIFDSProblem
         extends DefaultJimpleIFDSTabulationProblem<Map<ValueHolder, JLinkValue>, InterproceduralCFG<Stmt, SootMethod>> {
 
-    public static final JLinkValue TOP_VALUE = new JLinkValue();
+    public static final JLinkValue TOP_VALUE = () -> false;
     private SootMethod entryMethod;
     private SootClass<?> sootClass;
     private Map<SootMethod, Map<ValueHolder, JLinkValue>> methodToConstants;
@@ -102,6 +106,7 @@ public class JLinkIFDSProblem
                 constants.put(new LocalHolder(new Local("this", UnknownType.getInstance())), source.get(new LocalHolder(base)));
             }
 
+            /* Propagate known arguments */
             for (int i = 0; i < destinationMethod.getParameterCount(); i++) {
                 JLinkValue value = null;
                 if (args.get(i) instanceof Local argLocal) {
@@ -119,14 +124,13 @@ public class JLinkIFDSProblem
                 }
             }
 
-            // fill in the other locals we don't know
+            /* Fill in the other locals we don't know */
             for (Local l : destinationMethod.getBody().getLocals()) {
                 if (! constants.containsKey(new LocalHolder(l))) {
                     constants.put(new LocalHolder(l), TOP_VALUE);
                 }
             }
 
-            // Fill in static values we may not know
             if (! destinationMethod.getDeclaringClassType().equals(entryMethod.getDeclaringClassType())) {
                 ClassType destinationClass = destinationMethod.getDeclaringClassType();
                 // TODO should we remove the static values that do not correspond to that class?
@@ -160,7 +164,6 @@ public class JLinkIFDSProblem
                         } else if (returnStmt.getOp() instanceof NullConstant) {
                             returnValue = new NullValue();
                         }
-
 
                         if (methodToConstants.containsKey(caller)) {
                             methodToConstants.get(caller).put(new LocalHolder(leftOpLocal), returnValue);

@@ -85,6 +85,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
                     if (path.endsWith(".class") && !path.endsWith("/module-info.class")
                             && ! path.contains("FlightRecorderMXBeanImpl.class") // TODO - raises Soot issues. I opened a bug.
                             && ! path.contains("TerminalBuilder") // testing condition
+//                            && path.contains("/ResourceBundle.class")
                     ) {
                         System.out.println(path);
                         out.add(transform(resource));
@@ -138,7 +139,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
         try {
             Map<SootMethod, List<IFDS.EntryMethodWithCall>> map =
                     ifds.doServiceLoaderStaticAnalysis(reformatClassName(resource), failedPropagationWriter);
-            if (! map.isEmpty()) {
+            if (map != null) {
                 propWriter.write(resource.path() + " \n");
                 for (SootMethod sm : map.keySet()) {
                     propWriter.write("\t " + sm + "\n");

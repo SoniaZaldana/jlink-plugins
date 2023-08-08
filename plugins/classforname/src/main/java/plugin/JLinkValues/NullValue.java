@@ -1,8 +1,8 @@
-package plugin;
+package plugin.JLinkValues;
 
 import sootup.core.jimple.common.constant.NullConstant;
 
-public class NullValue extends JLinkValue {
+public class NullValue implements JLinkValue {
 
     public NullValue() {
 
@@ -21,4 +21,8 @@ public class NullValue extends JLinkValue {
         return false;
     }
 
+    @Override
+    public boolean isConstant() {
+        return true;
+    }
 }

@@ -1,5 +1,10 @@
 package plugin;
 
+import plugin.JLinkValues.ClassValue;
+import plugin.JLinkValues.JLinkValue;
+import plugin.JLinkValues.NullValue;
+import plugin.JLinkValues.ObjectValue;
+import plugin.JLinkValues.StringValue;
 import sootup.core.jimple.basic.Local;
 import sootup.core.jimple.basic.Value;
 import sootup.core.jimple.common.constant.ClassConstant;
@@ -121,7 +126,7 @@ public class JLinkVisitor implements StmtVisitor {
     }
 
     private boolean simpleName(ValueHolder lBase, ValueHolder toReassign) {
-        if (setIn.get(lBase) instanceof ClassValue classValue) {
+        if (setIn.get(lBase) instanceof plugin.JLinkValues.ClassValue classValue) {
             String className = classValue.getContent();
             setOut.put(toReassign, new StringValue(
                     className.substring(className.lastIndexOf("/"), className.length() - 1)));
@@ -132,7 +137,7 @@ public class JLinkVisitor implements StmtVisitor {
     }
 
     private boolean canonicalName(ValueHolder lBase, ValueHolder toReassign) {
-        if (setIn.get(lBase) instanceof ClassValue cv) {
+        if (setIn.get(lBase) instanceof plugin.JLinkValues.ClassValue cv) {
             setOut.put(toReassign, new StringValue(
                     cv.getContent().substring(1, cv.getContent().length() - 1)
                             .replace("/", ".")));
@@ -178,7 +183,7 @@ public class JLinkVisitor implements StmtVisitor {
 
     private JLinkValue classForNameParamValue(Value arg) {
         if (arg instanceof StringConstant stringConstant) {
-            return new ClassValue(stringConstant.getValue());
+            return new plugin.JLinkValues.ClassValue(stringConstant.getValue());
         } else if (arg instanceof Local local) {
             return setIn.get(new LocalHolder(local));
         }
@@ -207,7 +212,7 @@ public class JLinkVisitor implements StmtVisitor {
                 setOut.put(lHolder, setIn.get(new LocalHolder(rLocal)));
             } else if (right instanceof ClassConstant constant) {
                 // this time the new value of lLocal is the class constant
-                setOut.put(lHolder, new ClassValue(constant.getValue()));
+                setOut.put(lHolder, new plugin.JLinkValues.ClassValue(constant.getValue()));
             } else if (right instanceof StringConstant constant) {
                 // this time the new value of lLocal is the string constant
                 setOut.put(lHolder, new StringValue(constant.getValue()));
@@ -228,11 +233,11 @@ public class JLinkVisitor implements StmtVisitor {
                         setOut.put(lHolder, fieldValue);
                     }
                 }
-            } else if (right instanceof JFieldRef fRef) {
+            } else if (right instanceof JFieldRef) {
                 JLinkValue value;
                 if (right instanceof ClassConstant constant) {
                     // we have a constant, so we are done
-                    value = new ClassValue(constant.getValue());
+                    value = new plugin.JLinkValues.ClassValue(constant.getValue());
                 } else if (right instanceof StringConstant strConstant) {
                     value = new StringValue(strConstant.getValue());
                 } else if (right instanceof NullValue) {
@@ -266,7 +271,7 @@ public class JLinkVisitor implements StmtVisitor {
                 setOut.put(new LocalHolder(fieldRef.getBase()), objectValue);
             }
         } else {
-            // we do not care.
+            // we don't know how to handle it.
         }
     }
 

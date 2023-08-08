@@ -1,6 +1,6 @@
-package plugin;
+package plugin.JLinkValues;
 
-public class StringValue extends JLinkValue {
+public class StringValue implements JLinkValue {
 
     private String content;
 
@@ -30,5 +30,10 @@ public class StringValue extends JLinkValue {
         int hash = 7;
         hash = 31 * hash + (content == null ? 0 : content.hashCode());
         return hash;
+    }
+
+    @Override
+    public boolean isConstant() {
+        return true;
     }
 }

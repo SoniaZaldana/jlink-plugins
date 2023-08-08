@@ -84,7 +84,7 @@ public class ClassForNamePlugin extends AbstractPlugin {
 
                     if (path.endsWith(".class") && !path.endsWith("/module-info.class")
                             && ! path.contains("FlightRecorderMXBeanImpl.class") // TODO - raises Soot issues. I opened a bug.
-                            && path.contains("StaticTest$") // testing condition
+                            && ! path.contains("TerminalBuilder") // testing condition
                     ) {
                         System.out.println(path);
                         out.add(transform(resource));

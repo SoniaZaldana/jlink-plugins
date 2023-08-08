@@ -10,6 +10,10 @@ import sootup.callgraph.ClassHierarchyAnalysisAlgorithm;
 import sootup.core.frontend.ResolveException;
 import sootup.core.jimple.basic.Immediate;
 import sootup.core.jimple.basic.Local;
+import sootup.core.jimple.common.constant.ClassConstant;
+import sootup.core.jimple.common.constant.Constant;
+import sootup.core.jimple.common.constant.NullConstant;
+import sootup.core.jimple.common.constant.StringConstant;
 import sootup.core.jimple.common.expr.*;
 import sootup.core.jimple.common.stmt.*;
 
@@ -20,6 +24,7 @@ import sootup.core.signatures.MethodSignature;
 
 
 import sootup.core.types.ClassType;
+import sootup.core.types.Type;
 import sootup.java.core.JavaIdentifierFactory;
 import sootup.java.core.JavaProject;
 import sootup.java.core.JavaSootMethod;
@@ -31,8 +36,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.*;
 
-import static plugin.JLinkIFDSProblem.TOP_VALUE;
-
 public class IFDS {
     protected JavaView view;
     protected JavaIdentifierFactory factory;
@@ -41,7 +44,7 @@ public class IFDS {
     private final String SERVICE_LOADER = "java.util.ServiceLoader";
     private final String LOAD = "load";
     private final String INIT = "<init>";
-    private final String THIS_REF = "l0";
+    private final String CLINIT = "<clinit>";
 
     /* The counters below are just to render a summary at the end of the analysis */
     int ifdsCounter;
@@ -72,6 +75,10 @@ public class IFDS {
     private SootClass<?> getClass(String targetClassName) {
         JavaClassType classSignature = factory.getClassType(targetClassName);
         return view.getClass(classSignature).get();
+    }
+
+    private boolean isConstant(JLinkValue value) {
+        return value instanceof ClassValue || value instanceof StringValue || value instanceof NullValue;
     }
 
     /**
@@ -108,8 +115,14 @@ public class IFDS {
         if (stmt instanceof JAssignStmt assignStmt) {
             if (assignStmt.containsInvokeExpr() && assignStmt.getInvokeExpr() instanceof JStaticInvokeExpr invokeExpr) {
                 MethodSignature signature = invokeExpr.getMethodSignature();
-                return signature.getName().equals(LOAD)
-                        && signature.getDeclClassType().getFullyQualifiedName().equals(SERVICE_LOADER);
+                if (! signature.getParameterTypes().isEmpty()) {
+                    Type firstParam = signature.getParameterTypes().get(0);
+                    if (firstParam instanceof JavaClassType classType && classType.getFullyQualifiedName().equals("java.lang.Class")) {
+                        return signature.getName().equals(LOAD)
+                                && signature.getDeclClassType().getFullyQualifiedName().equals(SERVICE_LOADER);
+                    }
+
+                }
             }
         }
         return false;
@@ -151,6 +164,47 @@ public class IFDS {
         return map;
     }
 
+    private Map<ValueHolder, JLinkValue> getConstantStaticValues(SootClass<?> sc) {
+        Map<ValueHolder, JLinkValue> clinitSeeds = null;
+        Optional<? extends SootMethod> clinitOpt = sc.getMethods().stream()
+                .filter(m -> m.getName().equals(CLINIT))
+                .findAny();
+        if (clinitOpt.isPresent()) {
+            SootMethod clinit = clinitOpt.get();
+            JavaView clinitView = inputLocationWithClasses(List.of(sc.getType())).createView();
+            clinit = clinitView.getMethod(clinit.getSignature()).get();
+            JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> clinitSolver = getSolver(clinit, clinitView, null, sc.getType());
+
+
+            List<Stmt> lastStmts = clinit.getBody()
+                    .getStmts().stream()
+                    .filter(s -> s instanceof JReturnVoidStmt).toList();
+
+            for (Stmt lastStmt : lastStmts) {
+                List<Map<ValueHolder, JLinkValue>> clinitResults  =
+                        (List<Map<ValueHolder, JLinkValue>>) clinitSolver.ifdsResultsAt(lastStmt).stream().toList();
+
+                if (! clinitResults.isEmpty()) {
+                    clinitSeeds = new HashMap<>();
+                    for (Map<ValueHolder, JLinkValue> result : clinitResults) {
+                        for (ValueHolder valueHolder : result.keySet()) {
+                            if (valueHolder instanceof StaticFieldHolder) {
+                                JLinkValue value = result.get(valueHolder);
+                                if (isConstant(value) && ! clinitSeeds.containsKey(valueHolder)) {
+                                    clinitSeeds.put(valueHolder, value);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+
+        }
+
+        return clinitSeeds;
+    }
+
     public Map<SootMethod, List<EntryMethodWithCall>> doServiceLoaderStaticAnalysis(String targetClassName, FileWriter writer) {
         SootClass<?> sc = getClass(targetClassName);
 
@@ -162,6 +216,13 @@ public class IFDS {
 
         /* We first find all methods in the class with service loader calls */
         Map<SootMethod, List<ServiceLoaderCall>> methodsEnclosingSLCalls = getEnclosingMethodsWithServiceLoaderCalls(sc);
+
+
+        /* Pick up final static values */
+        Map<ValueHolder, JLinkValue> clinitSeeds = null;
+        if (! methodsEnclosingSLCalls.isEmpty()) {
+            clinitSeeds = getConstantStaticValues(sc);
+        }
 
         /* Then, we perform analysis on each of these methods and calls to determine constant values */
         Map<SootMethod, List<EntryMethodWithCall>> analysisMap = new HashMap<>();
@@ -209,7 +270,8 @@ public class IFDS {
                      */
 
                     JavaView view = inputLocationWithClasses(List.of(sm.getDeclaringClassType())).createView();
-                    JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(view.getMethod(sm.getSignature()).get(), view);
+                    JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = getSolver(view.getMethod(sm.getSignature()).get(),
+                            view, clinitSeeds, sc.getType());
                     if (solver == null) {
                         // Refer to note in #getSolver to see why this could be null.
 
@@ -223,8 +285,8 @@ public class IFDS {
                         continue;
                     }
 
-                    List<Map<Local, JLinkValue>> results =
-                            (List<Map<Local, JLinkValue>>) solver.equivResultsAt(call.getStmt()).stream().toList();
+                    List<Map<ValueHolder, JLinkValue>> results =
+                            (List<Map<ValueHolder, JLinkValue>>) solver.equivResultsAt(call.getStmt()).stream().toList();
 
                     /* A note on solver#equivResultsAt:
                        This is not a native Soot method. I added it to their JimpleSolver.
@@ -253,7 +315,7 @@ public class IFDS {
                          * in the call graph in that class if necessary.
                          */
 
-                        if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call)) {
+                        if (backtrackCallGraphInEnclosingClass(sm, entryMethodsWithCalls, call, clinitSeeds)) {
 
                         } else if (outerClass != null) {
                             /* Let's try using the outer class to see if this helps us determine constant values */
@@ -270,36 +332,44 @@ public class IFDS {
                             for (SootMethod initMethod : initMethodsOuter.keySet()) {
 
                                 /* Per method, set initializer method as entry method to propagate an object */
-                                solver = getSolver(view.getMethod(initMethod.getSignature()).get(), view);
+                                Map<ValueHolder, JLinkValue> outerClinitSeeds = getConstantStaticValues(outerClass);
+                                solver = getSolver(view.getMethod(initMethod.getSignature()).get(), view, outerClinitSeeds, outerClass.getType());
 
                                 for (Stmt initStmt : initMethodsOuter.get(initMethod)) {
 
                                     /* Determine the value of the object directly after the initialization stmt */
                                     results =
-                                            (List<Map<Local, JLinkValue>>) solver.equivResultsAt(initStmt).stream().toList();
+                                            (List<Map<ValueHolder, JLinkValue>>) solver.equivResultsAt(initStmt).stream().toList();
 
                                     /* Fetch the object value from results */
                                     if (initStmt.getInvokeExpr() instanceof AbstractInstanceInvokeExpr instanceInvokeExpr) {
                                         Local base = instanceInvokeExpr.getBase();
-                                        for (Map<Local, JLinkValue> result : results) {
-                                            JLinkValue value = result.get(base);
-                                            if (value instanceof ObjectValue) {
+                                        for (Map<ValueHolder, JLinkValue> result : results) {
+                                            JLinkValue value = result.get(new LocalHolder(base));
+                                            if (value instanceof ObjectValue objectValue && objectValue.getFields() != null ) {
 
                                                 /* Generate seed values for method enclosing SL call that includes object */
-                                                Map<Local, JLinkValue> seedMap = new HashMap<>();
-                                                for (Local l : initMethod.getBody().getLocals()) {
-                                                    if (l.getName().equals(THIS_REF)) {
-                                                        /* this ref should point to object with propagated values */
-                                                        seedMap.put(l, value);
-                                                    } else {
-                                                        seedMap.put(l, TOP_VALUE);
-                                                    }
+                                                Map<ValueHolder, JLinkValue> seedMap = new HashMap<>();
+                                                Local thisLocal = sm.getBody().getThisLocal();
+                                                if (thisLocal != null) {
+                                                    seedMap.put(new LocalHolder(thisLocal), value);
                                                 }
 
+                                                /* Combine these seeds with the static final field seeds */
+                                                if (clinitSeeds != null) {
+                                                    seedMap.putAll(clinitSeeds);
+                                                }
+                                                if (outerClinitSeeds != null) {
+                                                    seedMap.putAll(outerClinitSeeds);
+                                                }
+
+
+                                                // todo above we want to combine with the clinit values we know
+
                                                 /* Call the framework with a modified set of initial seeds */
-                                                solver = getSolver(view.getMethod(sm.getSignature()).get(), view, seedMap);
-                                                List<Map<Local, JLinkValue>> innerClassConstants =
-                                                        (List<Map<Local, JLinkValue>>) solver.equivResultsAt(call.getStmt()).stream().toList();
+                                                solver = getSolver(view.getMethod(sm.getSignature()).get(), view, seedMap, sc.getType());
+                                                List<Map<ValueHolder, JLinkValue>> innerClassConstants =
+                                                        (List<Map<ValueHolder, JLinkValue>>) solver.equivResultsAt(call.getStmt()).stream().toList();
                                                 constantCalls = getCallsWithConstantParams(innerClassConstants, call);
                                                 if (! constantCalls.isEmpty()) {
                                                     addConstantCalls(entryMethodsWithCalls, constantCalls, initMethod);
@@ -369,26 +439,16 @@ public class IFDS {
                 .build();
     }
 
-    public JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> getSolver(SootMethod entryMethod, JavaView view) {
-        return getSolver(entryMethod, view, null);
-    }
 
-
-    /**
-     * Creates interprocedural solver based on given java view and initial seed values
-     * @param entryMethod entry method for analysis
-     * @param view java view containing classes to analyze
-     * @param seedValues initial propagation values. May be null.
-     * @return
-     */
     public JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> getSolver(SootMethod entryMethod, JavaView view,
-                                                                               Map<Local, JLinkValue> seedValues) {
+                                                                               Map<ValueHolder, JLinkValue> seedValues,
+                                                                               ClassType classType) {
         try {
             JimpleBasedInterproceduralCFG icfg = new JimpleBasedInterproceduralCFG(view,
                     entryMethod.getSignature(),
                     false,
                     false);
-            JLinkIFDSProblem problem = new JLinkIFDSProblem(icfg, entryMethod, seedValues);
+            JLinkIFDSProblem problem = new JLinkIFDSProblem(icfg, entryMethod, seedValues, view.getClass(classType).get());
             JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> solver = new JimpleIFDSSolver<>(problem);
             solver.solve(entryMethod.getDeclaringClassType().getClassName());
             return solver;
@@ -413,11 +473,12 @@ public class IFDS {
      * @param entryMethodsWithCalls the list tracking the entry method that gave us sufficient constant info
      *                              and the ServiceLoader call with constant information.
      * @param call the ServiceLoader call we are interested in learning constant parameters.
+     * @param clinitSeeds final static field values
      * @return
      */
     private boolean backtrackCallGraphInEnclosingClass(SootMethod sm,
                                                     List<EntryMethodWithCall> entryMethodsWithCalls,
-                                                    ServiceLoaderCall call) {
+                                                    ServiceLoaderCall call, Map<ValueHolder, JLinkValue> clinitSeeds) {
 
         JavaView view = inputLocationWithClasses(List.of(sm.getDeclaringClassType())).createView();
 
@@ -432,19 +493,22 @@ public class IFDS {
                 .stream().map(SootMethod::getSignature).toList());
 
         CallGraph cg = cha.initialize(classMethodSignatures);
-        return backTrackRecursive(view.getMethod(sm.getSignature()).get(), entryMethodsWithCalls, call, cg, view); // note - important to pass down method corresponding to examined view.
+        return backTrackRecursive(view.getMethod(sm.getSignature()).get(), entryMethodsWithCalls,
+                call, cg, view, clinitSeeds, classSignature); // note - important to pass down method corresponding to examined view.
     }
 
     private boolean backTrackRecursive(SootMethod sm,
                                     List<EntryMethodWithCall> entryMethodsWithCalls,
                                     ServiceLoaderCall call,
                                     CallGraph cg,
-                                    JavaView view) {
+                                    JavaView view,
+                                    Map<ValueHolder, JLinkValue> clinitSeeds,
+                                    ClassType classType) {
 
         Object[] calls = cg.callsTo(sm.getSignature()).toArray();
 
         /* Base case 0: No calls to method with ServiceLoader call */
-        if (calls.length == 0) {
+        if (calls.length == 0 || sm.getSignature().getName().equals(CLINIT)) {
             return false;
         }
 
@@ -456,13 +520,14 @@ public class IFDS {
 
                 /* Try to do interprocedural analysis with this caller method as entry method */
                 JavaSootMethod callerMethod = (JavaSootMethod) mOpt.get();
-                JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> callerSolver = getSolver(callerMethod, view);
+                JimpleIFDSSolver<?, InterproceduralCFG<Stmt, SootMethod>> callerSolver = getSolver(callerMethod, view,
+                        clinitSeeds, classType);
 
                 if (callerSolver == null) {
                     continue; // Refer to note in #getSolver for context.
                 }
 
-                List<Map<Local, JLinkValue>> results = (List<Map<Local, JLinkValue>>)
+                List<Map<ValueHolder, JLinkValue>> results = (List<Map<ValueHolder, JLinkValue>>)
                         callerSolver.equivResultsAt(call.getStmt()).stream().toList();
                 List<ServiceLoaderCall> constantCalls = getCallsWithConstantParams(results, call);
                 if (! constantCalls.isEmpty()) {
@@ -490,7 +555,8 @@ public class IFDS {
                 } else {
                     /* Recursive case: We need to backtrack once again.
                        Note how caller method is the method we are backtracking from now */
-                    foundConstants = foundConstants || backTrackRecursive(callerMethod, entryMethodsWithCalls, call, cg, view);
+                    foundConstants = foundConstants || backTrackRecursive(callerMethod, entryMethodsWithCalls, call, cg,
+                            view, clinitSeeds, classType);
                 }
             }
         }
@@ -517,24 +583,45 @@ public class IFDS {
      * @param call the call we are interested in propagating constant values to
      * @return
      */
-    public List<ServiceLoaderCall> getCallsWithConstantParams(List<Map<Local, JLinkValue>> results,
+    public List<ServiceLoaderCall> getCallsWithConstantParams(List<Map<ValueHolder, JLinkValue>> results,
                                                               ServiceLoaderCall call) {
         List<ServiceLoaderCall> calls = new ArrayList<>();
-        for (Map<Local, JLinkValue> result : results) {  // multiple results indicate multiple calls to SL enclosing methods
+        for (Map<ValueHolder, JLinkValue> result : results) {  // multiple results indicate multiple calls to SL enclosing methods
             boolean foundConstant = false;
             ServiceLoaderCall clone = call.clone();
             for (Immediate arg : call.getArgMap().keySet()) { // immediate is soot lingo for method arguments
-                if (result.containsKey(arg)) {
-                    JLinkValue val = result.get(arg);
-                    if (val != null && val != TOP_VALUE) {
-                        clone.addPropValue(arg, val);
-                        foundConstant = true;
+                JLinkValue val = null;
+                if (arg instanceof Constant) {
+                    val = convertToJLinkValue(arg);
+                } else if (arg instanceof Local local){
+                    LocalHolder lHolder = new LocalHolder(local);
+                    if (result.containsKey(lHolder)) {
+                        JLinkValue resVal = result.get(lHolder);
+                        if (resVal != null && resVal != JLinkIFDSProblem.TOP_VALUE) {
+                            val = resVal;
+                        }
                     }
+                }
+
+                if (val != null) {
+                    clone.addPropValue(arg, val);
+                    foundConstant = true;
                 }
             }
             if (foundConstant) calls.add(clone);
         }
         return calls;
+    }
+
+    private JLinkValue convertToJLinkValue(Immediate arg) {
+        if (arg instanceof ClassConstant classConstant) {
+            return new ClassValue(classConstant.getValue());
+        } else if (arg instanceof StringConstant stringConstant) {
+            return new StringValue(stringConstant.getValue());
+        } else if (arg instanceof NullConstant) {
+            return new NullValue();
+        }
+        return null;
     }
 
     /**

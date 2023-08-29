@@ -24,6 +24,7 @@
   <modules>
     <module>dynamod</module>
     <module>seal</module>
+    <module>index</module>
   </modules>
       
   <dependencies>
